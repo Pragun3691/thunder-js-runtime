@@ -14,6 +14,7 @@ from thunder_js.ast_nodes import (
     ContinueStatement,
     ExpressionStatement,
     ForStatement,
+    FunctionDeclaration,
     GroupingExpression,
     Identifier,
     IfStatement,
@@ -24,6 +25,7 @@ from thunder_js.ast_nodes import (
     PrefixUpdateExpression,
     Program,
     PropertyAccessExpression,
+    ReturnStatement,
     SpreadElement,
     StringLiteral,
     UnaryExpression,
@@ -63,6 +65,13 @@ class ContinueSignal(Exception):
     """Internal signal used to continue a loop."""
 
 
+class ReturnSignal(Exception):
+    """Internal signal used to return from a function."""
+
+    def __init__(self, value: object):
+        self.value = value
+
+
 class NativeMethod(JSCallable):
     """A small callable wrapper for built-in methods."""
 
@@ -71,6 +80,40 @@ class NativeMethod(JSCallable):
 
     def call(self, arguments: list[object]) -> object:
         return self.method(arguments)
+
+
+class JSFunction(JSCallable):
+    """A user-defined JavaScript function."""
+
+    def __init__(
+        self,
+        declaration: FunctionDeclaration,
+        closure: Environment,
+        interpreter: "Interpreter",
+    ):
+        self.declaration = declaration
+        self.closure = closure
+        self.interpreter = interpreter
+
+    def call(self, arguments: list[object]) -> object:
+        function_environment = Environment(self.closure)
+
+        for index, parameter in enumerate(self.declaration.parameters):
+            if index < len(arguments):
+                value = arguments[index]
+            else:
+                value = JS_UNDEFINED
+            function_environment.define(parameter, value)
+
+        try:
+            self.interpreter._execute_block(
+                self.declaration.body,
+                Environment(function_environment),
+            )
+        except ReturnSignal as signal:
+            return signal.value
+
+        return JS_UNDEFINED
 
 
 class Interpreter:
@@ -97,6 +140,8 @@ class Interpreter:
                 raise InterpreterError("break used outside of a loop.") from error
             except ContinueSignal as error:
                 raise InterpreterError("continue used outside of a loop.") from error
+            except ReturnSignal as error:
+                raise InterpreterError("return used outside of a function.") from error
             return
         if isinstance(statement, ExpressionStatement):
             self.evaluate(statement.expression)
@@ -115,6 +160,12 @@ class Interpreter:
             return
         if isinstance(statement, ForStatement):
             self._execute_for(statement)
+            return
+        if isinstance(statement, FunctionDeclaration):
+            self._execute_function_declaration(statement)
+            return
+        if isinstance(statement, ReturnStatement):
+            self._execute_return(statement)
             return
         if isinstance(statement, BreakStatement):
             raise BreakSignal()
@@ -196,6 +247,22 @@ class Interpreter:
             self.execute(statement.consequent)
         elif statement.alternate is not None:
             self.execute(statement.alternate)
+
+    def _execute_function_declaration(self, statement: FunctionDeclaration) -> None:
+        function = JSFunction(statement, self.environment, self)
+
+        try:
+            self.environment.define(statement.name, function)
+        except NameError as error:
+            raise InterpreterError(str(error)) from error
+
+    def _execute_return(self, statement: ReturnStatement) -> None:
+        value = JS_UNDEFINED
+
+        if statement.argument is not None:
+            value = self.evaluate(statement.argument)
+
+        raise ReturnSignal(value)
 
     def _execute_while(self, statement: WhileStatement) -> None:
         while to_boolean(self.evaluate(statement.test)):

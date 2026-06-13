@@ -13,6 +13,7 @@ from thunder_js.ast_nodes import (
     Expression,
     ExpressionStatement,
     ForStatement,
+    FunctionDeclaration,
     GroupingExpression,
     Identifier,
     IfStatement,
@@ -23,6 +24,7 @@ from thunder_js.ast_nodes import (
     PrefixUpdateExpression,
     Program,
     PropertyAccessExpression,
+    ReturnStatement,
     Statement,
     SpreadElement,
     StringLiteral,
@@ -98,6 +100,10 @@ class Parser:
         if self._match(TokenType.CONTINUE):
             self._optional_semicolon()
             return ContinueStatement()
+        if self._match(TokenType.FUNCTION):
+            return self._function_declaration()
+        if self._match(TokenType.RETURN):
+            return self._return_statement()
 
         return self._expression_statement()
 
@@ -171,6 +177,33 @@ class Parser:
 
         body = self._statement()
         return ForStatement(initializer, condition, update, body)
+
+    def _function_declaration(self) -> FunctionDeclaration:
+        name = self._consume(TokenType.IDENTIFIER, "Expected function name.")
+        self._consume(TokenType.LEFT_PAREN, "Expected '(' after function name.")
+        parameters = []
+
+        if not self._check(TokenType.RIGHT_PAREN):
+            while True:
+                parameter = self._consume(TokenType.IDENTIFIER, "Expected parameter name.")
+                parameters.append(parameter.lexeme)
+
+                if not self._match(TokenType.COMMA):
+                    break
+
+        self._consume(TokenType.RIGHT_PAREN, "Expected ')' after parameters.")
+        self._consume(TokenType.LEFT_BRACE, "Expected '{' before function body.")
+        body = self._block_statement()
+        return FunctionDeclaration(name.lexeme, parameters, body)
+
+    def _return_statement(self) -> ReturnStatement:
+        if self._check(TokenType.SEMICOLON) or self._check(TokenType.RIGHT_BRACE):
+            argument = None
+        else:
+            argument = self.parse_expression()
+
+        self._optional_semicolon()
+        return ReturnStatement(argument)
 
     def _expression_statement(self) -> ExpressionStatement:
         expression = self.parse_expression()

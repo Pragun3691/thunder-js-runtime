@@ -65,6 +65,18 @@ class ContinueStatement(Statement):
 
 
 @dataclass(frozen=True)
+class FunctionDeclaration(Statement):
+    name: str
+    parameters: list[str]
+    body: BlockStatement
+
+
+@dataclass(frozen=True)
+class ReturnStatement(Statement):
+    argument: Expression | None
+
+
+@dataclass(frozen=True)
 class SpreadElement(Expression):
     expression: Expression
 
