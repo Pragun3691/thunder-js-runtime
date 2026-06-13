@@ -6,10 +6,13 @@ from thunder_js.ast_nodes import (
     AssignmentExpression,
     BinaryExpression,
     BlockStatement,
+    BreakStatement,
     BooleanLiteral,
     CallExpression,
     ComputedMemberExpression,
+    ContinueStatement,
     ExpressionStatement,
+    ForStatement,
     GroupingExpression,
     Identifier,
     IfStatement,
@@ -24,6 +27,7 @@ from thunder_js.ast_nodes import (
     UnaryExpression,
     UndefinedLiteral,
     VariableDeclaration,
+    WhileStatement,
 )
 from thunder_js.environment import Environment
 from thunder_js.js_builtins import JSCallable, create_global_environment
@@ -47,17 +51,38 @@ class InterpreterError(Exception):
     """Raised when a program cannot be executed."""
 
 
+class BreakSignal(Exception):
+    """Internal signal used to exit a loop."""
+
+
+class ContinueSignal(Exception):
+    """Internal signal used to continue a loop."""
+
+
 class Interpreter:
     """Execute programs and evaluate expression AST nodes."""
 
-    def __init__(self, output: Callable[[str], None] | None = None):
+    def __init__(
+        self,
+        output: Callable[[str], None] | None = None,
+        step_limit: int = 100_000,
+    ):
         self.output = output if output is not None else print
         self.environment = create_global_environment(self.output)
+        self.step_limit = step_limit
+        self.steps = 0
 
     def execute(self, statement: object) -> None:
+        self._count_step()
+
         if isinstance(statement, Program):
-            for child in statement.body:
-                self.execute(child)
+            try:
+                for child in statement.body:
+                    self.execute(child)
+            except BreakSignal as error:
+                raise InterpreterError("break used outside of a loop.") from error
+            except ContinueSignal as error:
+                raise InterpreterError("continue used outside of a loop.") from error
             return
         if isinstance(statement, ExpressionStatement):
             self.evaluate(statement.expression)
@@ -71,6 +96,16 @@ class Interpreter:
         if isinstance(statement, IfStatement):
             self._execute_if(statement)
             return
+        if isinstance(statement, WhileStatement):
+            self._execute_while(statement)
+            return
+        if isinstance(statement, ForStatement):
+            self._execute_for(statement)
+            return
+        if isinstance(statement, BreakStatement):
+            raise BreakSignal()
+        if isinstance(statement, ContinueStatement):
+            raise ContinueSignal()
 
         raise InterpreterError("Unknown statement.")
 
@@ -104,11 +139,16 @@ class Interpreter:
         if isinstance(expression, AssignmentExpression):
             return self._evaluate_assignment(expression)
         if isinstance(expression, PrefixUpdateExpression):
-            raise InterpreterError("Update expressions are not supported yet.")
+            return self._evaluate_prefix_update(expression)
         if isinstance(expression, PostfixUpdateExpression):
-            raise InterpreterError("Update expressions are not supported yet.")
+            return self._evaluate_postfix_update(expression)
 
         raise InterpreterError("Unknown expression.")
+
+    def _count_step(self) -> None:
+        self.steps += 1
+        if self.steps > self.step_limit:
+            raise InterpreterError("Execution step limit exceeded.")
 
     def _execute_block(self, statement: BlockStatement, environment: Environment) -> None:
         previous = self.environment
@@ -140,6 +180,43 @@ class Interpreter:
             self.execute(statement.consequent)
         elif statement.alternate is not None:
             self.execute(statement.alternate)
+
+    def _execute_while(self, statement: WhileStatement) -> None:
+        while to_boolean(self.evaluate(statement.test)):
+            try:
+                self.execute(statement.body)
+            except ContinueSignal:
+                continue
+            except BreakSignal:
+                break
+
+    def _execute_for(self, statement: ForStatement) -> None:
+        loop_environment = Environment(self.environment)
+        previous = self.environment
+        self.environment = loop_environment
+
+        try:
+            if isinstance(statement.initializer, VariableDeclaration):
+                self._execute_variable_declaration(statement.initializer)
+            elif statement.initializer is not None:
+                self.evaluate(statement.initializer)
+
+            while True:
+                if statement.condition is not None:
+                    if not to_boolean(self.evaluate(statement.condition)):
+                        break
+
+                try:
+                    self.execute(statement.body)
+                except ContinueSignal:
+                    pass
+                except BreakSignal:
+                    break
+
+                if statement.update is not None:
+                    self.evaluate(statement.update)
+        finally:
+            self.environment = previous
 
     def _evaluate_unary(self, expression: UnaryExpression) -> object:
         value = self.evaluate(expression.argument)
@@ -252,6 +329,31 @@ class Interpreter:
         except (NameError, TypeError) as error:
             raise InterpreterError(str(error)) from error
 
+    def _evaluate_prefix_update(self, expression: PrefixUpdateExpression) -> object:
+        new_value = self._apply_update(expression.argument, expression.operator)
+        return new_value
+
+    def _evaluate_postfix_update(self, expression: PostfixUpdateExpression) -> object:
+        if not isinstance(expression.argument, Identifier):
+            raise InterpreterError("Only variable updates are supported yet.")
+
+        old_value = self._look_up_identifier(expression.argument)
+        self._apply_update(expression.argument, expression.operator)
+        return old_value
+
+    def _apply_update(self, target: object, operator: str) -> object:
+        if not isinstance(target, Identifier):
+            raise InterpreterError("Only variable updates are supported yet.")
+
+        old_value = self._look_up_identifier(target)
+        amount = 1 if operator == "++" else -1
+        new_value = to_number(old_value) + amount
+
+        try:
+            return self.environment.assign(target.name, new_value)
+        except (NameError, TypeError) as error:
+            raise InterpreterError(str(error)) from error
+
     def _look_up_identifier(self, expression: Identifier) -> object:
         try:
             return self.environment.get(expression.name)
@@ -282,8 +384,12 @@ def evaluate_expression(source: str) -> object:
     return Interpreter().evaluate(expression)
 
 
-def run_source(source: str, output: Callable[[str], None] | None = None) -> None:
-    interpreter = Interpreter(output)
+def run_source(
+    source: str,
+    output: Callable[[str], None] | None = None,
+    step_limit: int = 100_000,
+) -> None:
+    interpreter = Interpreter(output, step_limit=step_limit)
     tokens = Lexer(source).tokenize()
     program = Parser(tokens).parse_program()
     interpreter.execute(program)

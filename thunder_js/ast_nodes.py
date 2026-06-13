@@ -41,6 +41,30 @@ class IfStatement(Statement):
 
 
 @dataclass(frozen=True)
+class WhileStatement(Statement):
+    test: Expression
+    body: Statement
+
+
+@dataclass(frozen=True)
+class ForStatement(Statement):
+    initializer: Statement | Expression | None
+    condition: Expression | None
+    update: Expression | None
+    body: Statement
+
+
+@dataclass(frozen=True)
+class BreakStatement(Statement):
+    pass
+
+
+@dataclass(frozen=True)
+class ContinueStatement(Statement):
+    pass
+
+
+@dataclass(frozen=True)
 class NumericLiteral(Expression):
     value: int | float
 

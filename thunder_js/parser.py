@@ -4,11 +4,14 @@ from thunder_js.ast_nodes import (
     AssignmentExpression,
     BinaryExpression,
     BlockStatement,
+    BreakStatement,
     BooleanLiteral,
     CallExpression,
     ComputedMemberExpression,
+    ContinueStatement,
     Expression,
     ExpressionStatement,
+    ForStatement,
     GroupingExpression,
     Identifier,
     IfStatement,
@@ -24,6 +27,7 @@ from thunder_js.ast_nodes import (
     UnaryExpression,
     UndefinedLiteral,
     VariableDeclaration,
+    WhileStatement,
 )
 from thunder_js.tokens import Token, TokenType
 
@@ -82,6 +86,16 @@ class Parser:
             return self._variable_declaration("const")
         if self._match(TokenType.IF):
             return self._if_statement()
+        if self._match(TokenType.WHILE):
+            return self._while_statement()
+        if self._match(TokenType.FOR):
+            return self._for_statement()
+        if self._match(TokenType.BREAK):
+            self._optional_semicolon()
+            return BreakStatement()
+        if self._match(TokenType.CONTINUE):
+            self._optional_semicolon()
+            return ContinueStatement()
 
         return self._expression_statement()
 
@@ -121,10 +135,58 @@ class Parser:
 
         return IfStatement(test, consequent, alternate)
 
+    def _while_statement(self) -> WhileStatement:
+        self._consume(TokenType.LEFT_PAREN, "Expected '(' after while.")
+        test = self.parse_expression()
+        self._consume(TokenType.RIGHT_PAREN, "Expected ')' after while condition.")
+        body = self._statement()
+        return WhileStatement(test, body)
+
+    def _for_statement(self) -> ForStatement:
+        self._consume(TokenType.LEFT_PAREN, "Expected '(' after for.")
+
+        if self._match(TokenType.SEMICOLON):
+            initializer = None
+        elif self._match(TokenType.LET):
+            initializer = self._variable_declaration_without_semicolon("let")
+            self._consume(TokenType.SEMICOLON, "Expected ';' after for initializer.")
+        elif self._match(TokenType.CONST):
+            initializer = self._variable_declaration_without_semicolon("const")
+            self._consume(TokenType.SEMICOLON, "Expected ';' after for initializer.")
+        else:
+            initializer = self.parse_expression()
+            self._consume(TokenType.SEMICOLON, "Expected ';' after for initializer.")
+
+        condition = None
+        if not self._check(TokenType.SEMICOLON):
+            condition = self.parse_expression()
+        self._consume(TokenType.SEMICOLON, "Expected ';' after for condition.")
+
+        update = None
+        if not self._check(TokenType.RIGHT_PAREN):
+            update = self.parse_expression()
+        self._consume(TokenType.RIGHT_PAREN, "Expected ')' after for clauses.")
+
+        body = self._statement()
+        return ForStatement(initializer, condition, update, body)
+
     def _expression_statement(self) -> ExpressionStatement:
         expression = self.parse_expression()
         self._optional_semicolon()
         return ExpressionStatement(expression)
+
+    def _variable_declaration_without_semicolon(
+        self, kind: str
+    ) -> VariableDeclaration:
+        name = self._consume(TokenType.IDENTIFIER, f"Expected {kind} variable name.")
+        initializer = None
+
+        if self._match(TokenType.EQUAL):
+            initializer = self.parse_expression()
+        elif kind == "const":
+            raise self._error(name, "Expected initializer for const declaration.")
+
+        return VariableDeclaration(kind, name.lexeme, initializer)
 
     def _assignment(self) -> Expression:
         target = self._logical_or()
