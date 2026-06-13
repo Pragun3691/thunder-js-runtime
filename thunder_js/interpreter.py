@@ -5,26 +5,30 @@ from collections.abc import Callable
 from thunder_js.ast_nodes import (
     AssignmentExpression,
     BinaryExpression,
+    BlockStatement,
     BooleanLiteral,
     CallExpression,
     ComputedMemberExpression,
+    ExpressionStatement,
     GroupingExpression,
     Identifier,
+    IfStatement,
     LogicalExpression,
     NullLiteral,
     NumericLiteral,
     PostfixUpdateExpression,
     PrefixUpdateExpression,
+    Program,
     PropertyAccessExpression,
     StringLiteral,
     UnaryExpression,
     UndefinedLiteral,
+    VariableDeclaration,
 )
 from thunder_js.environment import Environment
 from thunder_js.js_builtins import JSCallable, create_global_environment
 from thunder_js.lexer import Lexer
 from thunder_js.parser import Parser
-from thunder_js.tokens import Token, TokenType
 from thunder_js.values import (
     JS_NULL,
     JS_UNDEFINED,
@@ -40,15 +44,35 @@ from thunder_js.values import (
 
 
 class InterpreterError(Exception):
-    """Raised when an expression cannot be evaluated."""
+    """Raised when a program cannot be executed."""
 
 
 class Interpreter:
-    """Evaluate expression AST nodes."""
+    """Execute programs and evaluate expression AST nodes."""
 
     def __init__(self, output: Callable[[str], None] | None = None):
         self.output = output if output is not None else print
         self.environment = create_global_environment(self.output)
+
+    def execute(self, statement: object) -> None:
+        if isinstance(statement, Program):
+            for child in statement.body:
+                self.execute(child)
+            return
+        if isinstance(statement, ExpressionStatement):
+            self.evaluate(statement.expression)
+            return
+        if isinstance(statement, BlockStatement):
+            self._execute_block(statement, Environment(self.environment))
+            return
+        if isinstance(statement, VariableDeclaration):
+            self._execute_variable_declaration(statement)
+            return
+        if isinstance(statement, IfStatement):
+            self._execute_if(statement)
+            return
+
+        raise InterpreterError("Unknown statement.")
 
     def evaluate(self, expression: object) -> object:
         if isinstance(expression, NumericLiteral):
@@ -78,13 +102,44 @@ class Interpreter:
         if isinstance(expression, CallExpression):
             return self._evaluate_call(expression)
         if isinstance(expression, AssignmentExpression):
-            raise InterpreterError("Assignment is not supported yet.")
+            return self._evaluate_assignment(expression)
         if isinstance(expression, PrefixUpdateExpression):
             raise InterpreterError("Update expressions are not supported yet.")
         if isinstance(expression, PostfixUpdateExpression):
             raise InterpreterError("Update expressions are not supported yet.")
 
         raise InterpreterError("Unknown expression.")
+
+    def _execute_block(self, statement: BlockStatement, environment: Environment) -> None:
+        previous = self.environment
+        self.environment = environment
+
+        try:
+            for child in statement.body:
+                self.execute(child)
+        finally:
+            self.environment = previous
+
+    def _execute_variable_declaration(self, statement: VariableDeclaration) -> None:
+        value = JS_UNDEFINED
+
+        if statement.initializer is not None:
+            value = self.evaluate(statement.initializer)
+
+        try:
+            self.environment.define(
+                statement.name,
+                value,
+                mutable=statement.kind == "let",
+            )
+        except NameError as error:
+            raise InterpreterError(str(error)) from error
+
+    def _execute_if(self, statement: IfStatement) -> None:
+        if to_boolean(self.evaluate(statement.test)):
+            self.execute(statement.consequent)
+        elif statement.alternate is not None:
+            self.execute(statement.alternate)
 
     def _evaluate_unary(self, expression: UnaryExpression) -> object:
         value = self.evaluate(expression.argument)
@@ -167,6 +222,36 @@ class Interpreter:
 
         raise InterpreterError(f"Unsupported logical operator {expression.operator}.")
 
+    def _evaluate_assignment(self, expression: AssignmentExpression) -> object:
+        if not isinstance(expression.target, Identifier):
+            raise InterpreterError("Only variable assignment is supported yet.")
+
+        right = self.evaluate(expression.value)
+        name = expression.target.name
+
+        try:
+            if expression.operator == "=":
+                return self.environment.assign(name, right)
+
+            left = self.environment.get(name)
+
+            if expression.operator == "+=":
+                value = js_add(left, right)
+            elif expression.operator == "-=":
+                value = to_number(left) - to_number(right)
+            elif expression.operator == "*=":
+                value = to_number(left) * to_number(right)
+            elif expression.operator == "/=":
+                value = js_divide(left, right)
+            else:
+                raise InterpreterError(
+                    f"Unsupported assignment operator {expression.operator}."
+                )
+
+            return self.environment.assign(name, value)
+        except (NameError, TypeError) as error:
+            raise InterpreterError(str(error)) from error
+
     def _look_up_identifier(self, expression: Identifier) -> object:
         try:
             return self.environment.get(expression.name)
@@ -199,32 +284,9 @@ def evaluate_expression(source: str) -> object:
 
 def run_source(source: str, output: Callable[[str], None] | None = None) -> None:
     interpreter = Interpreter(output)
-    for expression in parse_expression_chunks(source):
-        interpreter.evaluate(expression)
-
-
-def parse_expression_chunks(source: str) -> list[object]:
     tokens = Lexer(source).tokenize()
-    expressions = []
-    current_tokens: list[Token] = []
-
-    for token in tokens:
-        if token.type == TokenType.SEMICOLON:
-            if current_tokens:
-                expressions.append(_parse_chunk(current_tokens, token))
-                current_tokens = []
-        elif token.type == TokenType.EOF:
-            if current_tokens:
-                expressions.append(_parse_chunk(current_tokens, token))
-        else:
-            current_tokens.append(token)
-
-    return expressions
-
-
-def _parse_chunk(tokens: list[Token], end_token: Token) -> object:
-    chunk = tokens + [Token(TokenType.EOF, "", None, end_token.line, end_token.column)]
-    return Parser(chunk).parse()
+    program = Parser(tokens).parse_program()
+    interpreter.execute(program)
 
 
 def value_to_output(value: object) -> str:

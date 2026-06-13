@@ -1,10 +1,43 @@
-"""AST node classes for JavaScript expressions."""
+"""AST node classes for JavaScript expressions and statements."""
 
 from dataclasses import dataclass
 
 
 class Expression:
     """Base class for expression nodes."""
+
+
+class Statement:
+    """Base class for statement nodes."""
+
+
+@dataclass(frozen=True)
+class Program:
+    body: list[Statement]
+
+
+@dataclass(frozen=True)
+class ExpressionStatement(Statement):
+    expression: Expression
+
+
+@dataclass(frozen=True)
+class BlockStatement(Statement):
+    body: list[Statement]
+
+
+@dataclass(frozen=True)
+class VariableDeclaration(Statement):
+    kind: str
+    name: str
+    initializer: Expression | None
+
+
+@dataclass(frozen=True)
+class IfStatement(Statement):
+    test: Expression
+    consequent: Statement
+    alternate: Statement | None
 
 
 @dataclass(frozen=True)

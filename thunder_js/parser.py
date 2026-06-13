@@ -3,21 +3,27 @@
 from thunder_js.ast_nodes import (
     AssignmentExpression,
     BinaryExpression,
+    BlockStatement,
     BooleanLiteral,
     CallExpression,
     ComputedMemberExpression,
     Expression,
+    ExpressionStatement,
     GroupingExpression,
     Identifier,
+    IfStatement,
     LogicalExpression,
     NullLiteral,
     NumericLiteral,
     PostfixUpdateExpression,
     PrefixUpdateExpression,
+    Program,
     PropertyAccessExpression,
+    Statement,
     StringLiteral,
     UnaryExpression,
     UndefinedLiteral,
+    VariableDeclaration,
 )
 from thunder_js.tokens import Token, TokenType
 
@@ -39,11 +45,11 @@ ASSIGNMENT_TARGET_TYPES = (
 
 
 class ParserError(Exception):
-    """Raised when tokens do not form a valid expression."""
+    """Raised when tokens do not form valid JavaScript syntax."""
 
 
 class Parser:
-    """Parse one JavaScript expression from a token list."""
+    """Parse JavaScript expressions and complete programs."""
 
     def __init__(self, tokens: list[Token]):
         self.tokens = tokens
@@ -54,8 +60,71 @@ class Parser:
         self._consume(TokenType.EOF, "Expected end of expression.")
         return expression
 
+    def parse_program(self) -> Program:
+        body = []
+
+        while not self._is_at_end():
+            if self._match(TokenType.SEMICOLON):
+                continue
+            body.append(self._statement())
+
+        return Program(body)
+
     def parse_expression(self) -> Expression:
         return self._assignment()
+
+    def _statement(self) -> Statement:
+        if self._match(TokenType.LEFT_BRACE):
+            return self._block_statement()
+        if self._match(TokenType.LET):
+            return self._variable_declaration("let")
+        if self._match(TokenType.CONST):
+            return self._variable_declaration("const")
+        if self._match(TokenType.IF):
+            return self._if_statement()
+
+        return self._expression_statement()
+
+    def _block_statement(self) -> BlockStatement:
+        body = []
+
+        while not self._check(TokenType.RIGHT_BRACE) and not self._is_at_end():
+            if self._match(TokenType.SEMICOLON):
+                continue
+            body.append(self._statement())
+
+        self._consume(TokenType.RIGHT_BRACE, "Expected '}' after block.")
+        return BlockStatement(body)
+
+    def _variable_declaration(self, kind: str) -> VariableDeclaration:
+        name = self._consume(TokenType.IDENTIFIER, f"Expected {kind} variable name.")
+        initializer = None
+
+        if self._match(TokenType.EQUAL):
+            initializer = self.parse_expression()
+        elif kind == "const":
+            raise self._error(name, "Expected initializer for const declaration.")
+
+        self._optional_semicolon()
+        return VariableDeclaration(kind, name.lexeme, initializer)
+
+    def _if_statement(self) -> IfStatement:
+        self._consume(TokenType.LEFT_PAREN, "Expected '(' after if.")
+        test = self.parse_expression()
+        self._consume(TokenType.RIGHT_PAREN, "Expected ')' after if condition.")
+
+        consequent = self._statement()
+        alternate = None
+
+        if self._match(TokenType.ELSE):
+            alternate = self._statement()
+
+        return IfStatement(test, consequent, alternate)
+
+    def _expression_statement(self) -> ExpressionStatement:
+        expression = self.parse_expression()
+        self._optional_semicolon()
+        return ExpressionStatement(expression)
 
     def _assignment(self) -> Expression:
         target = self._logical_or()
@@ -242,6 +311,9 @@ class Parser:
             return self._advance()
 
         raise self._error(self._peek(), message)
+
+    def _optional_semicolon(self) -> None:
+        self._match(TokenType.SEMICOLON)
 
     def _check(self, token_type: TokenType) -> bool:
         if self._is_at_end() and token_type != TokenType.EOF:

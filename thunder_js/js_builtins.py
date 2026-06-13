@@ -26,5 +26,5 @@ class ConsoleLog(JSCallable):
 
 def create_global_environment(output: Callable[[str], None]) -> Environment:
     environment = Environment()
-    environment.define("console", {"log": ConsoleLog(output)})
+    environment.define("console", {"log": ConsoleLog(output)}, mutable=False)
     return environment
