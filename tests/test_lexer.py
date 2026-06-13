@@ -85,7 +85,7 @@ def test_identifiers_and_keywords_are_distinguished():
 
 
 def test_punctuation_and_brackets_are_tokenized():
-    assert token_types("(){ }[] ,.;:?") == [
+    assert token_types("(){ }[] ,.;:? ...") == [
         TokenType.LEFT_PAREN,
         TokenType.RIGHT_PAREN,
         TokenType.LEFT_BRACE,
@@ -97,6 +97,7 @@ def test_punctuation_and_brackets_are_tokenized():
         TokenType.SEMICOLON,
         TokenType.COLON,
         TokenType.QUESTION,
+        TokenType.ELLIPSIS,
         TokenType.EOF,
     ]
 

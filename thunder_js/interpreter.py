@@ -4,6 +4,7 @@ from collections.abc import Callable
 
 from thunder_js.ast_nodes import (
     AssignmentExpression,
+    ArrayLiteral,
     BinaryExpression,
     BlockStatement,
     BreakStatement,
@@ -23,6 +24,7 @@ from thunder_js.ast_nodes import (
     PrefixUpdateExpression,
     Program,
     PropertyAccessExpression,
+    SpreadElement,
     StringLiteral,
     UnaryExpression,
     UndefinedLiteral,
@@ -132,6 +134,8 @@ class Interpreter:
             return JS_NULL
         if isinstance(expression, UndefinedLiteral):
             return JS_UNDEFINED
+        if isinstance(expression, ArrayLiteral):
+            return self._evaluate_array_literal(expression)
         if isinstance(expression, GroupingExpression):
             return self.evaluate(expression.expression)
         if isinstance(expression, UnaryExpression):
@@ -145,7 +149,7 @@ class Interpreter:
         if isinstance(expression, PropertyAccessExpression):
             return self._get_property(expression)
         if isinstance(expression, ComputedMemberExpression):
-            raise InterpreterError("Computed member access is not supported yet.")
+            return self._get_computed_member(expression)
         if isinstance(expression, CallExpression):
             return self._evaluate_call(expression)
         if isinstance(expression, AssignmentExpression):
@@ -312,17 +316,13 @@ class Interpreter:
         raise InterpreterError(f"Unsupported logical operator {expression.operator}.")
 
     def _evaluate_assignment(self, expression: AssignmentExpression) -> object:
-        if not isinstance(expression.target, Identifier):
-            raise InterpreterError("Only variable assignment is supported yet.")
-
         right = self.evaluate(expression.value)
-        name = expression.target.name
 
         try:
             if expression.operator == "=":
-                return self.environment.assign(name, right)
+                return self._assign_target(expression.target, right)
 
-            left = self.environment.get(name)
+            left = self._read_assignment_target(expression.target)
 
             if expression.operator == "+=":
                 value = js_add(left, right)
@@ -337,9 +337,23 @@ class Interpreter:
                     f"Unsupported assignment operator {expression.operator}."
                 )
 
-            return self.environment.assign(name, value)
+            return self._assign_target(expression.target, value)
         except (NameError, TypeError) as error:
             raise InterpreterError(str(error)) from error
+
+    def _read_assignment_target(self, target: object) -> object:
+        if isinstance(target, Identifier):
+            return self.environment.get(target.name)
+        if isinstance(target, ComputedMemberExpression):
+            return self._get_computed_member(target)
+        raise InterpreterError("Invalid assignment target.")
+
+    def _assign_target(self, target: object, value: object) -> object:
+        if isinstance(target, Identifier):
+            return self.environment.assign(target.name, value)
+        if isinstance(target, ComputedMemberExpression):
+            return self._assign_computed_member(target, value)
+        raise InterpreterError("Invalid assignment target.")
 
     def _evaluate_prefix_update(self, expression: PrefixUpdateExpression) -> object:
         new_value = self._apply_update(expression.argument, expression.operator)
@@ -371,6 +385,20 @@ class Interpreter:
             return self.environment.get(expression.name)
         except NameError as error:
             raise InterpreterError(str(error)) from error
+
+    def _evaluate_array_literal(self, expression: ArrayLiteral) -> JSArray:
+        items = []
+
+        for element in expression.elements:
+            if isinstance(element, SpreadElement):
+                value = self.evaluate(element.expression)
+                if not isinstance(value, JSArray):
+                    raise InterpreterError("Spread value is not iterable.")
+                items.extend(value.items)
+            else:
+                items.append(self.evaluate(element))
+
+        return JSArray(items)
 
     def _get_property(self, expression: PropertyAccessExpression) -> object:
         container = self.evaluate(expression.object)
@@ -418,8 +446,65 @@ class Interpreter:
             return NativeMethod(lambda args: self._array_reverse(array))
         if property_name == "join":
             return NativeMethod(lambda args: self._array_join(array, args))
+        if property_name == "push":
+            return NativeMethod(lambda args: self._array_push(array, args))
+        if property_name == "pop":
+            return NativeMethod(lambda args: self._array_pop(array))
+        if property_name == "shift":
+            return NativeMethod(lambda args: self._array_shift(array))
+        if property_name == "unshift":
+            return NativeMethod(lambda args: self._array_unshift(array, args))
+        if property_name == "slice":
+            return NativeMethod(lambda args: self._array_slice(array, args))
+        if property_name == "splice":
+            return NativeMethod(lambda args: self._array_splice(array, args))
+        if property_name == "concat":
+            return NativeMethod(lambda args: self._array_concat(array, args))
+        if property_name == "includes":
+            return NativeMethod(lambda args: self._array_includes(array, args))
+        if property_name == "indexOf":
+            return NativeMethod(lambda args: self._array_index_of(array, args))
+        if property_name == "sort":
+            return NativeMethod(lambda args: self._array_sort(array))
 
         raise InterpreterError(f"Array method {property_name} is not defined.")
+
+    def _get_computed_member(self, expression: ComputedMemberExpression) -> object:
+        container = self.evaluate(expression.object)
+        key = self.evaluate(expression.property)
+
+        if isinstance(container, JSArray):
+            index = self._array_index(key)
+            if 0 <= index < len(container.items):
+                return container.items[index]
+            return JS_UNDEFINED
+
+        if isinstance(container, str):
+            index = self._array_index(key)
+            if 0 <= index < len(container):
+                return container[index]
+            return JS_UNDEFINED
+
+        raise InterpreterError("Computed member access is not supported for this value.")
+
+    def _assign_computed_member(
+        self, expression: ComputedMemberExpression, value: object
+    ) -> object:
+        container = self.evaluate(expression.object)
+        key = self.evaluate(expression.property)
+
+        if not isinstance(container, JSArray):
+            raise InterpreterError("Only array index assignment is supported yet.")
+
+        index = self._array_index(key)
+        if index < 0:
+            raise InterpreterError("Array index must be non-negative.")
+
+        while len(container.items) <= index:
+            container.items.append(JS_UNDEFINED)
+
+        container.items[index] = value
+        return value
 
     def _evaluate_call(self, expression: CallExpression) -> object:
         callee = self.evaluate(expression.callee)
@@ -509,6 +594,88 @@ class Interpreter:
 
         return separator.join(self._join_item_to_string(item) for item in array.items)
 
+    def _array_push(self, array: JSArray, arguments: list[object]) -> int:
+        array.items.extend(arguments)
+        return len(array.items)
+
+    def _array_pop(self, array: JSArray) -> object:
+        if not array.items:
+            return JS_UNDEFINED
+        return array.items.pop()
+
+    def _array_shift(self, array: JSArray) -> object:
+        if not array.items:
+            return JS_UNDEFINED
+        return array.items.pop(0)
+
+    def _array_unshift(self, array: JSArray, arguments: list[object]) -> int:
+        array.items[0:0] = arguments
+        return len(array.items)
+
+    def _array_slice(self, array: JSArray, arguments: list[object]) -> JSArray:
+        start = self._slice_index(arguments[0] if arguments else JS_UNDEFINED, len(array.items))
+        end = (
+            len(array.items)
+            if len(arguments) < 2 or arguments[1] is JS_UNDEFINED
+            else self._slice_index(arguments[1], len(array.items))
+        )
+        return JSArray(array.items[start:end])
+
+    def _array_splice(self, array: JSArray, arguments: list[object]) -> JSArray:
+        length = len(array.items)
+        start = self._slice_index(arguments[0] if arguments else JS_UNDEFINED, length)
+
+        if len(arguments) < 2:
+            delete_count = length - start
+        else:
+            delete_count = max(int(to_number(arguments[1])), 0)
+
+        delete_count = min(delete_count, length - start)
+        removed = array.items[start : start + delete_count]
+        array.items[start : start + delete_count] = arguments[2:]
+        return JSArray(removed)
+
+    def _array_concat(self, array: JSArray, arguments: list[object]) -> JSArray:
+        items = list(array.items)
+
+        for argument in arguments:
+            if isinstance(argument, JSArray):
+                items.extend(argument.items)
+            else:
+                items.append(argument)
+
+        return JSArray(items)
+
+    def _array_includes(self, array: JSArray, arguments: list[object]) -> bool:
+        if not arguments:
+            search = JS_UNDEFINED
+            start = 0
+        else:
+            search = arguments[0]
+            start = self._array_search_start(arguments[1], len(array.items)) if len(arguments) > 1 else 0
+
+        for item in array.items[start:]:
+            if strict_equal(item, search):
+                return True
+        return False
+
+    def _array_index_of(self, array: JSArray, arguments: list[object]) -> int:
+        if not arguments:
+            search = JS_UNDEFINED
+            start = 0
+        else:
+            search = arguments[0]
+            start = self._array_search_start(arguments[1], len(array.items)) if len(arguments) > 1 else 0
+
+        for index in range(start, len(array.items)):
+            if strict_equal(array.items[index], search):
+                return index
+        return -1
+
+    def _array_sort(self, array: JSArray) -> JSArray:
+        array.items.sort(key=to_string)
+        return array
+
     def _join_item_to_string(self, item: object) -> str:
         if item is JS_NULL or item is JS_UNDEFINED:
             return ""
@@ -526,6 +693,15 @@ class Interpreter:
             return 0
 
         index = int(number)
+        if index < 0:
+            return max(length + index, 0)
+        return min(index, length)
+
+    def _array_index(self, value: object) -> int:
+        return int(to_number(value))
+
+    def _array_search_start(self, value: object, length: int) -> int:
+        index = int(to_number(value))
         if index < 0:
             return max(length + index, 0)
         return min(index, length)

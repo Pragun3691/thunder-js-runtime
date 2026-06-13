@@ -65,6 +65,16 @@ class ContinueStatement(Statement):
 
 
 @dataclass(frozen=True)
+class SpreadElement(Expression):
+    expression: Expression
+
+
+@dataclass(frozen=True)
+class ArrayLiteral(Expression):
+    elements: list[Expression | SpreadElement]
+
+
+@dataclass(frozen=True)
 class NumericLiteral(Expression):
     value: int | float
 

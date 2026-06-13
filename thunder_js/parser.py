@@ -2,6 +2,7 @@
 
 from thunder_js.ast_nodes import (
     AssignmentExpression,
+    ArrayLiteral,
     BinaryExpression,
     BlockStatement,
     BreakStatement,
@@ -23,6 +24,7 @@ from thunder_js.ast_nodes import (
     Program,
     PropertyAccessExpression,
     Statement,
+    SpreadElement,
     StringLiteral,
     UnaryExpression,
     UndefinedLiteral,
@@ -352,8 +354,28 @@ class Parser:
             expression = self.parse_expression()
             self._consume(TokenType.RIGHT_PAREN, "Expected ')' after expression.")
             return GroupingExpression(expression)
+        if self._match(TokenType.LEFT_BRACKET):
+            return self._array_literal()
 
         raise self._error(self._peek(), "Expected expression.")
+
+    def _array_literal(self) -> ArrayLiteral:
+        elements = []
+
+        if not self._check(TokenType.RIGHT_BRACKET):
+            while True:
+                if self._match(TokenType.ELLIPSIS):
+                    elements.append(SpreadElement(self.parse_expression()))
+                else:
+                    elements.append(self.parse_expression())
+
+                if not self._match(TokenType.COMMA):
+                    break
+                if self._check(TokenType.RIGHT_BRACKET):
+                    break
+
+        self._consume(TokenType.RIGHT_BRACKET, "Expected ']' after array literal.")
+        return ArrayLiteral(elements)
 
     def _require_assignment_target(self, expression: Expression) -> None:
         if isinstance(expression, ASSIGNMENT_TARGET_TYPES):

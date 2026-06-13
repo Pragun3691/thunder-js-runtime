@@ -81,7 +81,11 @@ class Lexer:
         elif char == ",":
             self._add_token(TokenType.COMMA)
         elif char == ".":
-            if self._peek().isdigit():
+            if self._peek() == "." and self._peek_next() == ".":
+                self._advance()
+                self._advance()
+                self._add_token(TokenType.ELLIPSIS)
+            elif self._peek().isdigit():
                 self._number(started_with_dot=True)
             else:
                 self._add_token(TokenType.DOT)

@@ -192,11 +192,11 @@ def test_missing_array_method_error_goes_to_stderr_only():
 
     exit_code = main(
         [],
-        stdin=StringIO('let parts = "abc".split(""); console.log(parts.sort());'),
+        stdin=StringIO('let parts = "abc".split(""); console.log(parts.map());'),
         stdout=stdout,
         stderr=stderr,
     )
 
     assert exit_code == 1
     assert stdout.getvalue() == ""
-    assert "Array method sort is not defined" in stderr.getvalue()
+    assert "Array method map is not defined" in stderr.getvalue()

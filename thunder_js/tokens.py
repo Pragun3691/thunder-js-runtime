@@ -41,6 +41,7 @@ class TokenType(str, Enum):
     RIGHT_BRACKET = "RIGHT_BRACKET"
     COMMA = "COMMA"
     DOT = "DOT"
+    ELLIPSIS = "ELLIPSIS"
     SEMICOLON = "SEMICOLON"
     COLON = "COLON"
     QUESTION = "QUESTION"
