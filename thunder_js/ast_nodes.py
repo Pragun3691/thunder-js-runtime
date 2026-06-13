@@ -77,6 +77,19 @@ class ReturnStatement(Statement):
 
 
 @dataclass(frozen=True)
+class FunctionExpression(Expression):
+    name: str | None
+    parameters: list[str]
+    body: BlockStatement
+
+
+@dataclass(frozen=True)
+class ArrowFunctionExpression(Expression):
+    parameters: list[str]
+    body: Expression | BlockStatement
+
+
+@dataclass(frozen=True)
 class SpreadElement(Expression):
     expression: Expression
 

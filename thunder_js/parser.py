@@ -3,6 +3,7 @@
 from thunder_js.ast_nodes import (
     AssignmentExpression,
     ArrayLiteral,
+    ArrowFunctionExpression,
     BinaryExpression,
     BlockStatement,
     BreakStatement,
@@ -14,6 +15,7 @@ from thunder_js.ast_nodes import (
     ExpressionStatement,
     ForStatement,
     FunctionDeclaration,
+    FunctionExpression,
     GroupingExpression,
     Identifier,
     IfStatement,
@@ -83,7 +85,7 @@ class Parser:
         return Program(body)
 
     def parse_expression(self) -> Expression:
-        return self._assignment()
+        return self._arrow_function()
 
     def _statement(self) -> Statement:
         if self._match(TokenType.LEFT_BRACE):
@@ -200,18 +202,39 @@ class Parser:
 
     def _function_declaration(self) -> FunctionDeclaration:
         name = self._consume(TokenType.IDENTIFIER, "Expected function name.")
-        self._consume(TokenType.LEFT_PAREN, "Expected '(' after function name.")
+        parameters = self._function_parameters("function name")
+        body = self._function_body()
+        return FunctionDeclaration(name.lexeme, parameters, body)
+
+    def _function_expression(self) -> FunctionExpression:
+        name = None
+
+        if self._match(TokenType.IDENTIFIER):
+            name = self._previous().lexeme
+
+        parameters = self._function_parameters("function")
+        body = self._function_body()
+        return FunctionExpression(name, parameters, body)
+
+    def _function_parameters(self, owner: str) -> list[str]:
+        self._consume(TokenType.LEFT_PAREN, f"Expected '(' after {owner}.")
         parameters = []
 
         if not self._check(TokenType.RIGHT_PAREN):
             while True:
-                parameter = self._consume(TokenType.IDENTIFIER, "Expected parameter name.")
+                parameter = self._consume(
+                    TokenType.IDENTIFIER,
+                    "Expected parameter name.",
+                )
                 parameters.append(parameter.lexeme)
 
                 if not self._match(TokenType.COMMA):
                     break
 
         self._consume(TokenType.RIGHT_PAREN, "Expected ')' after parameters.")
+        return parameters
+
+    def _function_body(self) -> BlockStatement:
         self._consume(TokenType.LEFT_BRACE, "Expected '{' before function body.")
         previous_loop_depth = self.loop_depth
         self.loop_depth = 0
@@ -221,7 +244,7 @@ class Parser:
         finally:
             self.function_depth -= 1
             self.loop_depth = previous_loop_depth
-        return FunctionDeclaration(name.lexeme, parameters, body)
+        return body
 
     def _return_statement(self) -> ReturnStatement:
         if self._check(TokenType.SEMICOLON) or self._check(TokenType.RIGHT_BRACE):
@@ -250,13 +273,73 @@ class Parser:
 
         return VariableDeclaration(kind, name.lexeme, initializer)
 
+    def _arrow_function(self) -> Expression:
+        if self._check(TokenType.IDENTIFIER) and self._check_next(TokenType.ARROW):
+            parameter = self._advance()
+            self._advance()
+            body = self._arrow_body()
+            return ArrowFunctionExpression([parameter.lexeme], body)
+
+        if self._is_parenthesized_arrow_parameters():
+            parameters = self._arrow_parameters()
+            self._consume(TokenType.ARROW, "Expected '=>' after arrow parameters.")
+            body = self._arrow_body()
+            return ArrowFunctionExpression(parameters, body)
+
+        return self._assignment()
+
+    def _arrow_parameters(self) -> list[str]:
+        self._consume(TokenType.LEFT_PAREN, "Expected '(' before arrow parameters.")
+        parameters = []
+
+        if not self._check(TokenType.RIGHT_PAREN):
+            while True:
+                parameter = self._consume(TokenType.IDENTIFIER, "Expected parameter name.")
+                parameters.append(parameter.lexeme)
+
+                if not self._match(TokenType.COMMA):
+                    break
+
+        self._consume(TokenType.RIGHT_PAREN, "Expected ')' after arrow parameters.")
+        return parameters
+
+    def _arrow_body(self) -> Expression | BlockStatement:
+        if self._check(TokenType.LEFT_BRACE):
+            return self._function_body()
+
+        return self.parse_expression()
+
+    def _is_parenthesized_arrow_parameters(self) -> bool:
+        if not self._check(TokenType.LEFT_PAREN):
+            return False
+
+        index = self.current + 1
+
+        if self._token_type_at(index) == TokenType.RIGHT_PAREN:
+            return self._token_type_at(index + 1) == TokenType.ARROW
+
+        while True:
+            if self._token_type_at(index) != TokenType.IDENTIFIER:
+                return False
+
+            index += 1
+
+            if self._token_type_at(index) == TokenType.COMMA:
+                index += 1
+                continue
+
+            if self._token_type_at(index) == TokenType.RIGHT_PAREN:
+                return self._token_type_at(index + 1) == TokenType.ARROW
+
+            return False
+
     def _assignment(self) -> Expression:
         target = self._logical_or()
 
         if self._match(*ASSIGNMENT_OPERATORS):
             operator = self._previous().lexeme
             self._require_assignment_target(target)
-            value = self._assignment()
+            value = self._arrow_function()
             return AssignmentExpression(target, operator, value)
 
         return target
@@ -416,6 +499,8 @@ class Parser:
             return NullLiteral()
         if self._match(TokenType.UNDEFINED):
             return UndefinedLiteral()
+        if self._match(TokenType.FUNCTION):
+            return self._function_expression()
         if self._match(TokenType.IDENTIFIER):
             return Identifier(self._previous().lexeme)
 
@@ -505,6 +590,14 @@ class Parser:
         if self._is_at_end() and token_type != TokenType.EOF:
             return False
         return self._peek().type == token_type
+
+    def _check_next(self, token_type: TokenType) -> bool:
+        return self._token_type_at(self.current + 1) == token_type
+
+    def _token_type_at(self, index: int) -> TokenType:
+        if index >= len(self.tokens):
+            return TokenType.EOF
+        return self.tokens[index].type
 
     def _advance(self) -> Token:
         if not self._is_at_end():

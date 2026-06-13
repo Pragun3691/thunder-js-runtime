@@ -6,6 +6,7 @@ from collections.abc import Callable
 from thunder_js.ast_nodes import (
     AssignmentExpression,
     ArrayLiteral,
+    ArrowFunctionExpression,
     BinaryExpression,
     BlockStatement,
     BreakStatement,
@@ -16,6 +17,7 @@ from thunder_js.ast_nodes import (
     ExpressionStatement,
     ForStatement,
     FunctionDeclaration,
+    FunctionExpression,
     GroupingExpression,
     Identifier,
     IfStatement,
@@ -91,11 +93,13 @@ class JSFunction(JSCallable):
 
     def __init__(
         self,
-        declaration: FunctionDeclaration,
+        parameters: list[str],
+        body: object,
         closure: Environment,
         interpreter: "Interpreter",
     ):
-        self.declaration = declaration
+        self.parameters = parameters
+        self.body = body
         self.closure = closure
         self.interpreter = interpreter
 
@@ -108,17 +112,25 @@ class JSFunction(JSCallable):
         function_environment = Environment(self.closure)
 
         try:
-            for index, parameter in enumerate(self.declaration.parameters):
+            for index, parameter in enumerate(self.parameters):
                 if index < len(arguments):
                     value = arguments[index]
                 else:
                     value = JS_UNDEFINED
                 function_environment.define(parameter, value)
 
-            self.interpreter._execute_block(
-                self.declaration.body,
-                Environment(function_environment),
-            )
+            if isinstance(self.body, BlockStatement):
+                self.interpreter._execute_block(
+                    self.body,
+                    Environment(function_environment),
+                )
+            else:
+                previous = self.interpreter.environment
+                self.interpreter.environment = function_environment
+                try:
+                    return self.interpreter.evaluate(self.body)
+                finally:
+                    self.interpreter.environment = previous
         except ReturnSignal as signal:
             return signal.value
         finally:
@@ -202,6 +214,20 @@ class Interpreter:
             return self._evaluate_array_literal(expression)
         if isinstance(expression, ObjectLiteral):
             return self._evaluate_object_literal(expression)
+        if isinstance(expression, FunctionExpression):
+            return JSFunction(
+                expression.parameters,
+                expression.body,
+                self.environment,
+                self,
+            )
+        if isinstance(expression, ArrowFunctionExpression):
+            return JSFunction(
+                expression.parameters,
+                expression.body,
+                self.environment,
+                self,
+            )
         if isinstance(expression, GroupingExpression):
             return self.evaluate(expression.expression)
         if isinstance(expression, UnaryExpression):
@@ -279,7 +305,12 @@ class Interpreter:
         self._define_function(statement)
 
     def _define_function(self, statement: FunctionDeclaration) -> None:
-        function = JSFunction(statement, self.environment, self)
+        function = JSFunction(
+            statement.parameters,
+            statement.body,
+            self.environment,
+            self,
+        )
 
         try:
             if self.environment.has_local(statement.name):
