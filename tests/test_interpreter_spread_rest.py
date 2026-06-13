@@ -138,6 +138,64 @@ function bad(...items, last) {
     assert "Traceback" not in stderr
 
 
+def test_duplicate_normal_parameter_is_parser_error():
+    source = """
+function bad(a, a) {
+    return a;
+}
+"""
+
+    exit_code, stdout, stderr = run_cli(source)
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert "Duplicate parameter name 'a'." in stderr
+    assert "line 2, column 17" in stderr
+    assert "Traceback" not in stderr
+
+
+def test_rest_parameter_cannot_duplicate_normal_parameter():
+    source = """
+function bad(a, ...a) {
+    return a;
+}
+"""
+
+    exit_code, stdout, stderr = run_cli(source)
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert "Duplicate parameter name 'a'." in stderr
+    assert "line 2, column 20" in stderr
+    assert "Traceback" not in stderr
+
+
+def test_duplicate_arrow_parameter_is_parser_error():
+    source = """
+const bad = (a, a) => a;
+"""
+
+    exit_code, stdout, stderr = run_cli(source)
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert "Duplicate parameter name 'a'." in stderr
+    assert "line 2, column 17" in stderr
+    assert "Traceback" not in stderr
+
+
+def test_valid_function_parameters_still_work():
+    source = """
+function add(a, b) {
+    return a + b;
+}
+
+console.log(add(2, 3));
+"""
+
+    assert run_and_collect(source) == ["5"]
+
+
 def test_only_one_rest_parameter_is_allowed():
     source = """
 function bad(...first, ...second) {

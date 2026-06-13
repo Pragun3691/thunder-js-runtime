@@ -297,6 +297,7 @@ class Parser:
 
     def _parameter_list(self) -> tuple[list[str], str | None]:
         parameters = []
+        seen_names = set()
         rest_parameter = None
 
         if self._check(TokenType.RIGHT_PAREN):
@@ -313,6 +314,11 @@ class Parser:
                     TokenType.IDENTIFIER,
                     "Expected rest parameter name.",
                 )
+                if rest_parameter_token.lexeme in seen_names:
+                    raise self._error(
+                        rest_parameter_token,
+                        f"Duplicate parameter name {rest_parameter_token.lexeme!r}.",
+                    )
                 rest_parameter = rest_parameter_token.lexeme
 
                 if self._match(TokenType.COMMA):
@@ -326,7 +332,13 @@ class Parser:
                 TokenType.IDENTIFIER,
                 "Expected parameter name.",
             )
+            if parameter.lexeme in seen_names:
+                raise self._error(
+                    parameter,
+                    f"Duplicate parameter name {parameter.lexeme!r}.",
+                )
             parameters.append(parameter.lexeme)
+            seen_names.add(parameter.lexeme)
 
             if not self._match(TokenType.COMMA):
                 break
