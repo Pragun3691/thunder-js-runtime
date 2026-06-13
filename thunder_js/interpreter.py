@@ -22,6 +22,7 @@ from thunder_js.ast_nodes import (
     LogicalExpression,
     NullLiteral,
     NumericLiteral,
+    ObjectLiteral,
     PostfixUpdateExpression,
     PrefixUpdateExpression,
     Program,
@@ -41,6 +42,7 @@ from thunder_js.parser import Parser
 from thunder_js.values import (
     JSArray,
     JS_NULL,
+    JSObject,
     JS_UNDEFINED,
     format_value,
     is_nan,
@@ -198,6 +200,8 @@ class Interpreter:
             return JS_UNDEFINED
         if isinstance(expression, ArrayLiteral):
             return self._evaluate_array_literal(expression)
+        if isinstance(expression, ObjectLiteral):
+            return self._evaluate_object_literal(expression)
         if isinstance(expression, GroupingExpression):
             return self.evaluate(expression.expression)
         if isinstance(expression, UnaryExpression):
@@ -455,6 +459,8 @@ class Interpreter:
             return self.environment.get(target.name)
         if isinstance(target, ComputedMemberExpression):
             return self._get_computed_member(target)
+        if isinstance(target, PropertyAccessExpression):
+            return self._get_property(target)
         raise InterpreterError("Invalid assignment target.")
 
     def _assign_target(self, target: object, value: object) -> object:
@@ -462,6 +468,8 @@ class Interpreter:
             return self.environment.assign(target.name, value)
         if isinstance(target, ComputedMemberExpression):
             return self._assign_computed_member(target, value)
+        if isinstance(target, PropertyAccessExpression):
+            return self._assign_property(target, value)
         raise InterpreterError("Invalid assignment target.")
 
     def _evaluate_prefix_update(self, expression: PrefixUpdateExpression) -> object:
@@ -509,6 +517,14 @@ class Interpreter:
 
         return JSArray(items)
 
+    def _evaluate_object_literal(self, expression: ObjectLiteral) -> JSObject:
+        properties = {}
+
+        for property_node in expression.properties:
+            properties[property_node.key] = self.evaluate(property_node.value)
+
+        return JSObject(properties)
+
     def _get_property(self, expression: PropertyAccessExpression) -> object:
         container = self.evaluate(expression.object)
         property_name = expression.property.name
@@ -517,10 +533,23 @@ class Interpreter:
             return self._get_string_property(container, property_name)
         if isinstance(container, JSArray):
             return self._get_array_property(container, property_name)
+        if isinstance(container, JSObject):
+            return container.properties.get(property_name, JS_UNDEFINED)
         if isinstance(container, dict) and property_name in container:
             return container[property_name]
 
         raise InterpreterError(f"Property {property_name} is not defined.")
+
+    def _assign_property(
+        self, expression: PropertyAccessExpression, value: object
+    ) -> object:
+        container = self.evaluate(expression.object)
+
+        if not isinstance(container, JSObject):
+            raise InterpreterError("Only object property assignment is supported yet.")
+
+        container.properties[expression.property.name] = value
+        return value
 
     def _get_string_property(self, text: str, property_name: str) -> object:
         if property_name == "length":
@@ -597,6 +626,8 @@ class Interpreter:
             if 0 <= index < len(container):
                 return container[index]
             return JS_UNDEFINED
+        if isinstance(container, JSObject):
+            return container.properties.get(self._property_key(key), JS_UNDEFINED)
 
         raise InterpreterError("Computed member access is not supported for this value.")
 
@@ -606,8 +637,14 @@ class Interpreter:
         container = self.evaluate(expression.object)
         key = self.evaluate(expression.property)
 
+        if isinstance(container, JSObject):
+            container.properties[self._property_key(key)] = value
+            return value
+
         if not isinstance(container, JSArray):
-            raise InterpreterError("Only array index assignment is supported yet.")
+            raise InterpreterError(
+                "Only array index and object property assignment are supported yet."
+            )
 
         index = self._array_index(key)
         if index is None:
@@ -850,6 +887,9 @@ class Interpreter:
         if index < 0:
             return max(length + index, 0)
         return min(index, length)
+
+    def _property_key(self, value: object) -> str:
+        return to_string(value)
 
 
 def evaluate_expression(source: str) -> object:

@@ -20,6 +20,8 @@ from thunder_js.ast_nodes import (
     LogicalExpression,
     NullLiteral,
     NumericLiteral,
+    ObjectLiteral,
+    ObjectProperty,
     PostfixUpdateExpression,
     PrefixUpdateExpression,
     Program,
@@ -423,6 +425,8 @@ class Parser:
             return GroupingExpression(expression)
         if self._match(TokenType.LEFT_BRACKET):
             return self._array_literal()
+        if self._match(TokenType.LEFT_BRACE):
+            return self._object_literal()
 
         raise self._error(self._peek(), "Expected expression.")
 
@@ -443,6 +447,37 @@ class Parser:
 
         self._consume(TokenType.RIGHT_BRACKET, "Expected ']' after array literal.")
         return ArrayLiteral(elements)
+
+    def _object_literal(self) -> ObjectLiteral:
+        properties = []
+
+        if not self._check(TokenType.RIGHT_BRACE):
+            while True:
+                key = self._object_property_key()
+                self._consume(TokenType.COLON, "Expected ':' after object key.")
+                value = self.parse_expression()
+                properties.append(ObjectProperty(key, value))
+
+                if not self._match(TokenType.COMMA):
+                    break
+                if self._check(TokenType.RIGHT_BRACE):
+                    break
+
+        self._consume(TokenType.RIGHT_BRACE, "Expected '}' after object literal.")
+        return ObjectLiteral(properties)
+
+    def _object_property_key(self) -> str:
+        if self._match(TokenType.IDENTIFIER):
+            return self._previous().lexeme
+        if self._match(TokenType.STRING):
+            return self._previous().literal
+        if self._match(TokenType.NUMBER):
+            value = self._previous().literal
+            if isinstance(value, float) and value.is_integer():
+                return str(int(value))
+            return str(value)
+
+        raise self._error(self._peek(), "Expected object property key.")
 
     def _require_assignment_target(self, expression: Expression) -> None:
         if isinstance(expression, ASSIGNMENT_TARGET_TYPES):

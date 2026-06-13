@@ -21,6 +21,13 @@ class JSArray:
     items: list[object]
 
 
+@dataclass
+class JSObject:
+    """Small runtime object value."""
+
+    properties: dict[str, object]
+
+
 JS_NULL = JSNull()
 JS_UNDEFINED = JSUndefined()
 
@@ -78,6 +85,8 @@ def to_string(value: object) -> str:
         return value
     if isinstance(value, JSArray):
         return ",".join(to_string(item) for item in value.items)
+    if isinstance(value, JSObject):
+        return "[object Object]"
     return str(value)
 
 

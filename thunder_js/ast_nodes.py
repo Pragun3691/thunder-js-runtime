@@ -87,6 +87,17 @@ class ArrayLiteral(Expression):
 
 
 @dataclass(frozen=True)
+class ObjectProperty:
+    key: str
+    value: Expression
+
+
+@dataclass(frozen=True)
+class ObjectLiteral(Expression):
+    properties: list[ObjectProperty]
+
+
+@dataclass(frozen=True)
 class NumericLiteral(Expression):
     value: int | float
 
