@@ -21,6 +21,9 @@ class Environment:
             raise NameError(f"{name} has already been declared.")
         self.values[name] = Binding(value, mutable)
 
+    def has_local(self, name: str) -> bool:
+        return name in self.values
+
     def get(self, name: str) -> object:
         if name in self.values:
             return self.values[name].value

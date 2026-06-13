@@ -62,6 +62,8 @@ class Parser:
     def __init__(self, tokens: list[Token]):
         self.tokens = tokens
         self.current = 0
+        self.loop_depth = 0
+        self.function_depth = 0
 
     def parse(self) -> Expression:
         expression = self.parse_expression()
@@ -95,14 +97,22 @@ class Parser:
         if self._match(TokenType.FOR):
             return self._for_statement()
         if self._match(TokenType.BREAK):
+            if self.loop_depth == 0:
+                raise self._error(self._previous(), "break used outside of a loop.")
             self._optional_semicolon()
             return BreakStatement()
         if self._match(TokenType.CONTINUE):
+            if self.loop_depth == 0:
+                raise self._error(self._previous(), "continue used outside of a loop.")
             self._optional_semicolon()
             return ContinueStatement()
         if self._match(TokenType.FUNCTION):
             return self._function_declaration()
         if self._match(TokenType.RETURN):
+            if self.function_depth == 0:
+                raise self._error(
+                    self._previous(), "return used outside of a function."
+                )
             return self._return_statement()
 
         return self._expression_statement()
@@ -147,7 +157,11 @@ class Parser:
         self._consume(TokenType.LEFT_PAREN, "Expected '(' after while.")
         test = self.parse_expression()
         self._consume(TokenType.RIGHT_PAREN, "Expected ')' after while condition.")
-        body = self._statement()
+        self.loop_depth += 1
+        try:
+            body = self._statement()
+        finally:
+            self.loop_depth -= 1
         return WhileStatement(test, body)
 
     def _for_statement(self) -> ForStatement:
@@ -175,7 +189,11 @@ class Parser:
             update = self.parse_expression()
         self._consume(TokenType.RIGHT_PAREN, "Expected ')' after for clauses.")
 
-        body = self._statement()
+        self.loop_depth += 1
+        try:
+            body = self._statement()
+        finally:
+            self.loop_depth -= 1
         return ForStatement(initializer, condition, update, body)
 
     def _function_declaration(self) -> FunctionDeclaration:
@@ -193,7 +211,14 @@ class Parser:
 
         self._consume(TokenType.RIGHT_PAREN, "Expected ')' after parameters.")
         self._consume(TokenType.LEFT_BRACE, "Expected '{' before function body.")
-        body = self._block_statement()
+        previous_loop_depth = self.loop_depth
+        self.loop_depth = 0
+        self.function_depth += 1
+        try:
+            body = self._block_statement()
+        finally:
+            self.function_depth -= 1
+            self.loop_depth = previous_loop_depth
         return FunctionDeclaration(name.lexeme, parameters, body)
 
     def _return_statement(self) -> ReturnStatement:
@@ -295,29 +320,38 @@ class Parser:
         return expression
 
     def _factor(self) -> Expression:
-        expression = self._exponent()
+        expression = self._unary()
 
         while self._match(TokenType.STAR, TokenType.SLASH, TokenType.PERCENT):
             operator = self._previous().lexeme
-            right = self._exponent()
+            right = self._unary()
             expression = BinaryExpression(expression, operator, right)
 
         return expression
 
     def _exponent(self) -> Expression:
-        expression = self._unary()
+        expression = self._postfix()
 
         if self._match(TokenType.STAR_STAR):
             operator = self._previous().lexeme
-            right = self._exponent()
+            right = self._unary()
             return BinaryExpression(expression, operator, right)
 
         return expression
 
     def _unary(self) -> Expression:
         if self._match(TokenType.BANG, TokenType.MINUS, TokenType.PLUS):
+            operator_token = self._previous()
             operator = self._previous().lexeme
-            return UnaryExpression(operator, self._unary())
+            argument = self._unary()
+
+            if isinstance(argument, BinaryExpression) and argument.operator == "**":
+                raise self._error(
+                    operator_token,
+                    "Unary expression cannot be the left side of '**'.",
+                )
+
+            return UnaryExpression(operator, argument)
 
         if self._match(*UPDATE_OPERATORS):
             operator = self._previous().lexeme
@@ -325,7 +359,7 @@ class Parser:
             self._require_assignment_target(argument)
             return PrefixUpdateExpression(operator, argument)
 
-        return self._postfix()
+        return self._exponent()
 
     def _postfix(self) -> Expression:
         expression = self._call_or_member()

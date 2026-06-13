@@ -4,7 +4,7 @@ import math
 from collections.abc import Callable
 
 from thunder_js.environment import Environment
-from thunder_js.values import JS_UNDEFINED, format_value, is_nan, to_number
+from thunder_js.values import JS_UNDEFINED, format_value, is_nan, is_number, to_number
 
 
 class JSCallable:
@@ -32,6 +32,8 @@ class MathFloor(JSCallable):
         value = to_number(arguments[0] if arguments else JS_UNDEFINED)
 
         if is_nan(value):
+            return value
+        if is_number(value) and math.isinf(value):
             return value
 
         return math.floor(value)

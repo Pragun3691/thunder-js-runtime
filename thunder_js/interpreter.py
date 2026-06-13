@@ -1,5 +1,6 @@
 """Basic expression interpreter for the Thunder JavaScript runtime."""
 
+import math
 from collections.abc import Callable
 
 from thunder_js.ast_nodes import (
@@ -42,6 +43,7 @@ from thunder_js.values import (
     JS_NULL,
     JS_UNDEFINED,
     format_value,
+    is_nan,
     js_add,
     js_divide,
     js_remainder,
@@ -96,22 +98,29 @@ class JSFunction(JSCallable):
         self.interpreter = interpreter
 
     def call(self, arguments: list[object]) -> object:
+        self.interpreter.call_depth += 1
+        if self.interpreter.call_depth > self.interpreter.call_limit:
+            self.interpreter.call_depth -= 1
+            raise InterpreterError("Maximum call stack size exceeded.")
+
         function_environment = Environment(self.closure)
 
-        for index, parameter in enumerate(self.declaration.parameters):
-            if index < len(arguments):
-                value = arguments[index]
-            else:
-                value = JS_UNDEFINED
-            function_environment.define(parameter, value)
-
         try:
+            for index, parameter in enumerate(self.declaration.parameters):
+                if index < len(arguments):
+                    value = arguments[index]
+                else:
+                    value = JS_UNDEFINED
+                function_environment.define(parameter, value)
+
             self.interpreter._execute_block(
                 self.declaration.body,
                 Environment(function_environment),
             )
         except ReturnSignal as signal:
             return signal.value
+        finally:
+            self.interpreter.call_depth -= 1
 
         return JS_UNDEFINED
 
@@ -123,19 +132,21 @@ class Interpreter:
         self,
         output: Callable[[str], None] | None = None,
         step_limit: int = 100_000,
+        call_limit: int = 100,
     ):
         self.output = output if output is not None else print
         self.environment = create_global_environment(self.output)
         self.step_limit = step_limit
         self.steps = 0
+        self.call_limit = call_limit
+        self.call_depth = 0
 
     def execute(self, statement: object) -> None:
         self._count_step()
 
         if isinstance(statement, Program):
             try:
-                for child in statement.body:
-                    self.execute(child)
+                self._execute_statements(statement.body)
             except BreakSignal as error:
                 raise InterpreterError("break used outside of a loop.") from error
             except ContinueSignal as error:
@@ -222,10 +233,22 @@ class Interpreter:
         self.environment = environment
 
         try:
-            for child in statement.body:
-                self.execute(child)
+            self._execute_statements(statement.body)
         finally:
             self.environment = previous
+
+    def _execute_statements(self, statements: list[object]) -> None:
+        self._hoist_function_declarations(statements)
+
+        for child in statements:
+            if isinstance(child, FunctionDeclaration):
+                continue
+            self.execute(child)
+
+    def _hoist_function_declarations(self, statements: list[object]) -> None:
+        for child in statements:
+            if isinstance(child, FunctionDeclaration):
+                self._define_function(child)
 
     def _execute_variable_declaration(self, statement: VariableDeclaration) -> None:
         value = JS_UNDEFINED
@@ -249,9 +272,14 @@ class Interpreter:
             self.execute(statement.alternate)
 
     def _execute_function_declaration(self, statement: FunctionDeclaration) -> None:
+        self._define_function(statement)
+
+    def _define_function(self, statement: FunctionDeclaration) -> None:
         function = JSFunction(statement, self.environment, self)
 
         try:
+            if self.environment.has_local(statement.name):
+                return
             self.environment.define(statement.name, function)
         except NameError as error:
             raise InterpreterError(str(error)) from error
@@ -329,7 +357,7 @@ class Interpreter:
         if operator == "%":
             return js_remainder(left, right)
         if operator == "**":
-            return to_number(left) ** to_number(right)
+            return self._power(left, right)
         if operator == "<":
             return self._compare(left, right, "<")
         if operator == "<=":
@@ -348,6 +376,20 @@ class Interpreter:
             return not strict_equal(left, right)
 
         raise InterpreterError(f"Unsupported binary operator {operator}.")
+
+    def _power(self, left: object, right: object) -> object:
+        left_number = to_number(left)
+        right_number = to_number(right)
+
+        if is_nan(left_number) or is_nan(right_number):
+            return math.nan
+        if left_number < 0 and not right_number.is_integer():
+            return math.nan
+
+        try:
+            return left_number**right_number
+        except (OverflowError, ValueError):
+            return math.nan
 
     def _compare(self, left: object, right: object, operator: str) -> bool:
         if isinstance(left, str) and isinstance(right, str):
@@ -542,12 +584,16 @@ class Interpreter:
 
         if isinstance(container, JSArray):
             index = self._array_index(key)
+            if index is None:
+                return JS_UNDEFINED
             if 0 <= index < len(container.items):
                 return container.items[index]
             return JS_UNDEFINED
 
         if isinstance(container, str):
             index = self._array_index(key)
+            if index is None:
+                return JS_UNDEFINED
             if 0 <= index < len(container):
                 return container[index]
             return JS_UNDEFINED
@@ -564,6 +610,8 @@ class Interpreter:
             raise InterpreterError("Only array index assignment is supported yet.")
 
         index = self._array_index(key)
+        if index is None:
+            raise InterpreterError("Array index must be a number.")
         if index < 0:
             raise InterpreterError("Array index must be non-negative.")
 
@@ -578,7 +626,10 @@ class Interpreter:
         arguments = [self.evaluate(argument) for argument in expression.arguments]
 
         if isinstance(callee, JSCallable):
-            return callee.call(arguments)
+            try:
+                return callee.call(arguments)
+            except RecursionError as error:
+                raise InterpreterError("Maximum call stack size exceeded.") from error
 
         raise InterpreterError("Value is not callable.")
 
@@ -695,7 +746,13 @@ class Interpreter:
         if len(arguments) < 2:
             delete_count = length - start
         else:
-            delete_count = max(int(to_number(arguments[1])), 0)
+            delete_count_number = to_number(arguments[1])
+            if is_nan(delete_count_number):
+                delete_count = 0
+            elif math.isinf(delete_count_number):
+                delete_count = length - start
+            else:
+                delete_count = max(int(delete_count_number), 0)
 
         delete_count = min(delete_count, length - start)
         removed = array.items[start : start + delete_count]
@@ -719,7 +776,11 @@ class Interpreter:
             start = 0
         else:
             search = arguments[0]
-            start = self._array_search_start(arguments[1], len(array.items)) if len(arguments) > 1 else 0
+            start = (
+                self._array_search_start(arguments[1], len(array.items))
+                if len(arguments) > 1
+                else 0
+            )
 
         for item in array.items[start:]:
             if strict_equal(item, search):
@@ -732,7 +793,11 @@ class Interpreter:
             start = 0
         else:
             search = arguments[0]
-            start = self._array_search_start(arguments[1], len(array.items)) if len(arguments) > 1 else 0
+            start = (
+                self._array_search_start(arguments[1], len(array.items))
+                if len(arguments) > 1
+                else 0
+            )
 
         for index in range(start, len(array.items)):
             if strict_equal(array.items[index], search):
@@ -752,23 +817,36 @@ class Interpreter:
         number = to_number(value)
         if number != number or number < 0:
             return 0
+        if math.isinf(number):
+            return 0 if number < 0 else 2**31
         return int(number)
 
     def _slice_index(self, value: object, length: int) -> int:
         number = to_number(value)
         if number != number:
             return 0
+        if math.isinf(number):
+            return 0 if number < 0 else length
 
         index = int(number)
         if index < 0:
             return max(length + index, 0)
         return min(index, length)
 
-    def _array_index(self, value: object) -> int:
-        return int(to_number(value))
+    def _array_index(self, value: object) -> int | None:
+        number = to_number(value)
+        if is_nan(number) or math.isinf(number):
+            return None
+        return int(number)
 
     def _array_search_start(self, value: object, length: int) -> int:
-        index = int(to_number(value))
+        number = to_number(value)
+        if is_nan(number):
+            return 0
+        if math.isinf(number):
+            return 0 if number < 0 else length
+
+        index = int(number)
         if index < 0:
             return max(length + index, 0)
         return min(index, length)
