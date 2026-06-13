@@ -635,6 +635,18 @@ class Interpreter:
             return NativeMethod(lambda args: self._array_index_of(array, args))
         if property_name == "sort":
             return NativeMethod(lambda args: self._array_sort(array))
+        if property_name == "map":
+            return NativeMethod(lambda args: self._array_map(array, args))
+        if property_name == "filter":
+            return NativeMethod(lambda args: self._array_filter(array, args))
+        if property_name == "reduce":
+            return NativeMethod(lambda args: self._array_reduce(array, args))
+        if property_name == "find":
+            return NativeMethod(lambda args: self._array_find(array, args))
+        if property_name == "some":
+            return NativeMethod(lambda args: self._array_some(array, args))
+        if property_name == "every":
+            return NativeMethod(lambda args: self._array_every(array, args))
 
         raise InterpreterError(f"Array method {property_name} is not defined.")
 
@@ -875,6 +887,76 @@ class Interpreter:
     def _array_sort(self, array: JSArray) -> JSArray:
         array.items.sort(key=to_string)
         return array
+
+    def _array_map(self, array: JSArray, arguments: list[object]) -> JSArray:
+        callback = self._array_callback(arguments, "map")
+        mapped = []
+
+        for index, item in enumerate(array.items):
+            mapped.append(callback.call([item, index, array]))
+
+        return JSArray(mapped)
+
+    def _array_filter(self, array: JSArray, arguments: list[object]) -> JSArray:
+        callback = self._array_callback(arguments, "filter")
+        filtered = []
+
+        for index, item in enumerate(array.items):
+            if to_boolean(callback.call([item, index, array])):
+                filtered.append(item)
+
+        return JSArray(filtered)
+
+    def _array_reduce(self, array: JSArray, arguments: list[object]) -> object:
+        callback = self._array_callback(arguments, "reduce")
+
+        if len(arguments) > 1:
+            accumulator = arguments[1]
+            start_index = 0
+        elif array.items:
+            accumulator = array.items[0]
+            start_index = 1
+        else:
+            raise InterpreterError("Reduce of empty array with no initial value.")
+
+        for index in range(start_index, len(array.items)):
+            accumulator = callback.call(
+                [accumulator, array.items[index], index, array]
+            )
+
+        return accumulator
+
+    def _array_find(self, array: JSArray, arguments: list[object]) -> object:
+        callback = self._array_callback(arguments, "find")
+
+        for index, item in enumerate(array.items):
+            if to_boolean(callback.call([item, index, array])):
+                return item
+
+        return JS_UNDEFINED
+
+    def _array_some(self, array: JSArray, arguments: list[object]) -> bool:
+        callback = self._array_callback(arguments, "some")
+
+        for index, item in enumerate(array.items):
+            if to_boolean(callback.call([item, index, array])):
+                return True
+
+        return False
+
+    def _array_every(self, array: JSArray, arguments: list[object]) -> bool:
+        callback = self._array_callback(arguments, "every")
+
+        for index, item in enumerate(array.items):
+            if not to_boolean(callback.call([item, index, array])):
+                return False
+
+        return True
+
+    def _array_callback(self, arguments: list[object], method_name: str) -> JSCallable:
+        if not arguments or not isinstance(arguments[0], JSCallable):
+            raise InterpreterError(f"Array.{method_name} callback must be a function.")
+        return arguments[0]
 
     def _join_item_to_string(self, item: object) -> str:
         if item is JS_NULL or item is JS_UNDEFINED:
