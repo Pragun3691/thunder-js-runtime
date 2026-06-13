@@ -87,6 +87,7 @@ class FunctionDeclaration(Statement):
     name: str
     parameters: list[str]
     body: BlockStatement
+    rest_parameter: str | None = None
 
 
 @dataclass(frozen=True)
@@ -99,12 +100,14 @@ class FunctionExpression(Expression):
     name: str | None
     parameters: list[str]
     body: BlockStatement
+    rest_parameter: str | None = None
 
 
 @dataclass(frozen=True)
 class ArrowFunctionExpression(Expression):
     parameters: list[str]
     body: Expression | BlockStatement
+    rest_parameter: str | None = None
 
 
 @dataclass(frozen=True)
@@ -217,4 +220,4 @@ class ComputedMemberExpression(Expression):
 @dataclass(frozen=True)
 class CallExpression(Expression):
     callee: Expression
-    arguments: list[Expression]
+    arguments: list[Expression | SpreadElement]

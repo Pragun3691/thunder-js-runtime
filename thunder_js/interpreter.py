@@ -96,11 +96,13 @@ class JSFunction(JSCallable):
     def __init__(
         self,
         parameters: list[str],
+        rest_parameter: str | None,
         body: object,
         closure: Environment,
         interpreter: "Interpreter",
     ):
         self.parameters = parameters
+        self.rest_parameter = rest_parameter
         self.body = body
         self.closure = closure
         self.interpreter = interpreter
@@ -120,6 +122,10 @@ class JSFunction(JSCallable):
                 else:
                     value = JS_UNDEFINED
                 function_environment.define(parameter, value)
+
+            if self.rest_parameter is not None:
+                rest_items = list(arguments[len(self.parameters) :])
+                function_environment.define(self.rest_parameter, JSArray(rest_items))
 
             if isinstance(self.body, BlockStatement):
                 self.interpreter._execute_block(
@@ -225,6 +231,7 @@ class Interpreter:
         if isinstance(expression, FunctionExpression):
             return JSFunction(
                 expression.parameters,
+                expression.rest_parameter,
                 expression.body,
                 self.environment,
                 self,
@@ -232,6 +239,7 @@ class Interpreter:
         if isinstance(expression, ArrowFunctionExpression):
             return JSFunction(
                 expression.parameters,
+                expression.rest_parameter,
                 expression.body,
                 self.environment,
                 self,
@@ -315,6 +323,7 @@ class Interpreter:
     def _define_function(self, statement: FunctionDeclaration) -> None:
         function = JSFunction(
             statement.parameters,
+            statement.rest_parameter,
             statement.body,
             self.environment,
             self,
@@ -748,7 +757,7 @@ class Interpreter:
 
     def _evaluate_call(self, expression: CallExpression) -> object:
         callee = self.evaluate(expression.callee)
-        arguments = [self.evaluate(argument) for argument in expression.arguments]
+        arguments = self._evaluate_call_arguments(expression.arguments)
 
         if isinstance(callee, JSCallable):
             try:
@@ -757,6 +766,20 @@ class Interpreter:
                 raise InterpreterError("Maximum call stack size exceeded.") from error
 
         raise InterpreterError("Value is not callable.")
+
+    def _evaluate_call_arguments(self, argument_nodes: list[object]) -> list[object]:
+        arguments = []
+
+        for argument_node in argument_nodes:
+            if isinstance(argument_node, SpreadElement):
+                value = self.evaluate(argument_node.expression)
+                if not isinstance(value, JSArray):
+                    raise InterpreterError("Spread argument must be an array.")
+                arguments.extend(value.items)
+            else:
+                arguments.append(self.evaluate(argument_node))
+
+        return arguments
 
     def _string_split(self, text: str, arguments: list[object]) -> JSArray:
         if not arguments or arguments[0] is JS_UNDEFINED:

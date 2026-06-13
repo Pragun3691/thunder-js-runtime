@@ -275,9 +275,9 @@ class Parser:
 
     def _function_declaration(self) -> FunctionDeclaration:
         name = self._consume(TokenType.IDENTIFIER, "Expected function name.")
-        parameters = self._function_parameters("function name")
+        parameters, rest_parameter = self._function_parameters("function name")
         body = self._function_body()
-        return FunctionDeclaration(name.lexeme, parameters, body)
+        return FunctionDeclaration(name.lexeme, parameters, body, rest_parameter)
 
     def _function_expression(self) -> FunctionExpression:
         name = None
@@ -285,27 +285,56 @@ class Parser:
         if self._match(TokenType.IDENTIFIER):
             name = self._previous().lexeme
 
-        parameters = self._function_parameters("function")
+        parameters, rest_parameter = self._function_parameters("function")
         body = self._function_body()
-        return FunctionExpression(name, parameters, body)
+        return FunctionExpression(name, parameters, body, rest_parameter)
 
-    def _function_parameters(self, owner: str) -> list[str]:
+    def _function_parameters(self, owner: str) -> tuple[list[str], str | None]:
         self._consume(TokenType.LEFT_PAREN, f"Expected '(' after {owner}.")
-        parameters = []
-
-        if not self._check(TokenType.RIGHT_PAREN):
-            while True:
-                parameter = self._consume(
-                    TokenType.IDENTIFIER,
-                    "Expected parameter name.",
-                )
-                parameters.append(parameter.lexeme)
-
-                if not self._match(TokenType.COMMA):
-                    break
-
+        parameters, rest_parameter = self._parameter_list()
         self._consume(TokenType.RIGHT_PAREN, "Expected ')' after parameters.")
-        return parameters
+        return parameters, rest_parameter
+
+    def _parameter_list(self) -> tuple[list[str], str | None]:
+        parameters = []
+        rest_parameter = None
+
+        if self._check(TokenType.RIGHT_PAREN):
+            return parameters, rest_parameter
+
+        while True:
+            if self._match(TokenType.ELLIPSIS):
+                if rest_parameter is not None:
+                    raise self._error(
+                        self._previous(),
+                        "Only one rest parameter is allowed.",
+                    )
+                rest_parameter_token = self._consume(
+                    TokenType.IDENTIFIER,
+                    "Expected rest parameter name.",
+                )
+                rest_parameter = rest_parameter_token.lexeme
+
+                if self._match(TokenType.COMMA):
+                    raise self._error(
+                        self._previous(),
+                        "Rest parameter must be last.",
+                    )
+                break
+
+            parameter = self._consume(
+                TokenType.IDENTIFIER,
+                "Expected parameter name.",
+            )
+            parameters.append(parameter.lexeme)
+
+            if not self._match(TokenType.COMMA):
+                break
+
+            if self._check(TokenType.RIGHT_PAREN):
+                break
+
+        return parameters, rest_parameter
 
     def _function_body(self) -> BlockStatement:
         self._consume(TokenType.LEFT_BRACE, "Expected '{' before function body.")
@@ -357,27 +386,18 @@ class Parser:
             return ArrowFunctionExpression([parameter.lexeme], body)
 
         if self._is_parenthesized_arrow_parameters():
-            parameters = self._arrow_parameters()
+            parameters, rest_parameter = self._arrow_parameters()
             self._consume(TokenType.ARROW, "Expected '=>' after arrow parameters.")
             body = self._arrow_body()
-            return ArrowFunctionExpression(parameters, body)
+            return ArrowFunctionExpression(parameters, body, rest_parameter)
 
         return self._assignment()
 
-    def _arrow_parameters(self) -> list[str]:
+    def _arrow_parameters(self) -> tuple[list[str], str | None]:
         self._consume(TokenType.LEFT_PAREN, "Expected '(' before arrow parameters.")
-        parameters = []
-
-        if not self._check(TokenType.RIGHT_PAREN):
-            while True:
-                parameter = self._consume(TokenType.IDENTIFIER, "Expected parameter name.")
-                parameters.append(parameter.lexeme)
-
-                if not self._match(TokenType.COMMA):
-                    break
-
+        parameters, rest_parameter = self._parameter_list()
         self._consume(TokenType.RIGHT_PAREN, "Expected ')' after arrow parameters.")
-        return parameters
+        return parameters, rest_parameter
 
     def _arrow_body(self) -> Expression | BlockStatement:
         if self._check(TokenType.LEFT_BRACE):
@@ -395,6 +415,15 @@ class Parser:
             return self._token_type_at(index + 1) == TokenType.ARROW
 
         while True:
+            if self._token_type_at(index) == TokenType.ELLIPSIS:
+                index += 1
+                if self._token_type_at(index) != TokenType.IDENTIFIER:
+                    return False
+                index += 1
+                if self._token_type_at(index) != TokenType.RIGHT_PAREN:
+                    return False
+                return self._token_type_at(index + 1) == TokenType.ARROW
+
             if self._token_type_at(index) != TokenType.IDENTIFIER:
                 return False
 
@@ -555,7 +584,10 @@ class Parser:
 
         if not self._check(TokenType.RIGHT_PAREN):
             while True:
-                arguments.append(self.parse_expression())
+                if self._match(TokenType.ELLIPSIS):
+                    arguments.append(SpreadElement(self.parse_expression()))
+                else:
+                    arguments.append(self.parse_expression())
                 if not self._match(TokenType.COMMA):
                     break
 
