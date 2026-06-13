@@ -1,0 +1,11 @@
+console.log(Math.abs(-5));
+console.log(Math.ceil(2.2));
+console.log(Math.floor(2.8));
+console.log(Math.round(2.5));
+console.log(Math.max(2, 8, 4));
+console.log(Math.sqrt(16));
+console.log(Number("42"));
+console.log(String(true));
+console.log(Boolean(0));
+console.log(parseInt("12.9"));
+console.log(parseFloat("12.9"));
