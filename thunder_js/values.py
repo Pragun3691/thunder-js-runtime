@@ -14,6 +14,13 @@ class JSUndefined:
     """The JavaScript undefined value."""
 
 
+@dataclass
+class JSArray:
+    """Small runtime array value used by string split()."""
+
+    items: list[object]
+
+
 JS_NULL = JSNull()
 JS_UNDEFINED = JSUndefined()
 
@@ -69,6 +76,8 @@ def to_string(value: object) -> str:
         return format_number(float(value))
     if isinstance(value, str):
         return value
+    if isinstance(value, JSArray):
+        return ",".join(to_string(item) for item in value.items)
     return str(value)
 
 

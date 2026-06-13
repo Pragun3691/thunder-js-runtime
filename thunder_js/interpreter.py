@@ -34,6 +34,7 @@ from thunder_js.js_builtins import JSCallable, create_global_environment
 from thunder_js.lexer import Lexer
 from thunder_js.parser import Parser
 from thunder_js.values import (
+    JSArray,
     JS_NULL,
     JS_UNDEFINED,
     format_value,
@@ -44,6 +45,7 @@ from thunder_js.values import (
     strict_equal,
     to_boolean,
     to_number,
+    to_string,
 )
 
 
@@ -57,6 +59,16 @@ class BreakSignal(Exception):
 
 class ContinueSignal(Exception):
     """Internal signal used to continue a loop."""
+
+
+class NativeMethod(JSCallable):
+    """A small callable wrapper for built-in methods."""
+
+    def __init__(self, method: Callable[[list[object]], object]):
+        self.method = method
+
+    def call(self, arguments: list[object]) -> object:
+        return self.method(arguments)
 
 
 class Interpreter:
@@ -362,11 +374,52 @@ class Interpreter:
 
     def _get_property(self, expression: PropertyAccessExpression) -> object:
         container = self.evaluate(expression.object)
+        property_name = expression.property.name
 
-        if isinstance(container, dict) and expression.property.name in container:
-            return container[expression.property.name]
+        if isinstance(container, str):
+            return self._get_string_property(container, property_name)
+        if isinstance(container, JSArray):
+            return self._get_array_property(container, property_name)
+        if isinstance(container, dict) and property_name in container:
+            return container[property_name]
 
-        raise InterpreterError(f"Property {expression.property.name} is not defined.")
+        raise InterpreterError(f"Property {property_name} is not defined.")
+
+    def _get_string_property(self, text: str, property_name: str) -> object:
+        if property_name == "length":
+            return len(text)
+
+        methods = {
+            "split": lambda args: self._string_split(text, args),
+            "replace": lambda args: self._string_replace(text, args, replace_all=False),
+            "replaceAll": lambda args: self._string_replace(
+                text, args, replace_all=True
+            ),
+            "substring": lambda args: self._string_substring(text, args),
+            "slice": lambda args: self._string_slice(text, args),
+            "trim": lambda args: text.strip(),
+            "toUpperCase": lambda args: text.upper(),
+            "toLowerCase": lambda args: text.lower(),
+            "includes": lambda args: self._string_includes(text, args),
+            "startsWith": lambda args: self._string_starts_with(text, args),
+            "endsWith": lambda args: self._string_ends_with(text, args),
+            "indexOf": lambda args: self._string_index_of(text, args),
+        }
+
+        if property_name in methods:
+            return NativeMethod(methods[property_name])
+
+        raise InterpreterError(f"String method {property_name} is not defined.")
+
+    def _get_array_property(self, array: JSArray, property_name: str) -> object:
+        if property_name == "length":
+            return len(array.items)
+        if property_name == "reverse":
+            return NativeMethod(lambda args: self._array_reverse(array))
+        if property_name == "join":
+            return NativeMethod(lambda args: self._array_join(array, args))
+
+        raise InterpreterError(f"Array method {property_name} is not defined.")
 
     def _evaluate_call(self, expression: CallExpression) -> object:
         callee = self.evaluate(expression.callee)
@@ -376,6 +429,106 @@ class Interpreter:
             return callee.call(arguments)
 
         raise InterpreterError("Value is not callable.")
+
+    def _string_split(self, text: str, arguments: list[object]) -> JSArray:
+        if not arguments or arguments[0] is JS_UNDEFINED:
+            return JSArray([text])
+
+        separator = to_string(arguments[0])
+        if separator == "":
+            return JSArray(list(text))
+        return JSArray(text.split(separator))
+
+    def _string_replace(
+        self, text: str, arguments: list[object], replace_all: bool
+    ) -> str:
+        search = to_string(arguments[0]) if arguments else "undefined"
+        replacement = to_string(arguments[1]) if len(arguments) > 1 else "undefined"
+
+        if replace_all:
+            return text.replace(search, replacement)
+        return text.replace(search, replacement, 1)
+
+    def _string_substring(self, text: str, arguments: list[object]) -> str:
+        start = self._substring_index(arguments[0] if arguments else JS_UNDEFINED)
+        end = (
+            len(text)
+            if len(arguments) < 2 or arguments[1] is JS_UNDEFINED
+            else self._substring_index(arguments[1])
+        )
+        start = min(start, len(text))
+        end = min(end, len(text))
+
+        if start > end:
+            start, end = end, start
+
+        return text[start:end]
+
+    def _string_slice(self, text: str, arguments: list[object]) -> str:
+        start = self._slice_index(arguments[0] if arguments else JS_UNDEFINED, len(text))
+        end = (
+            len(text)
+            if len(arguments) < 2 or arguments[1] is JS_UNDEFINED
+            else self._slice_index(arguments[1], len(text))
+        )
+        return text[start:end]
+
+    def _string_includes(self, text: str, arguments: list[object]) -> bool:
+        search = to_string(arguments[0]) if arguments else "undefined"
+        position = self._substring_index(arguments[1]) if len(arguments) > 1 else 0
+        return search in text[position:]
+
+    def _string_starts_with(self, text: str, arguments: list[object]) -> bool:
+        search = to_string(arguments[0]) if arguments else "undefined"
+        position = self._substring_index(arguments[1]) if len(arguments) > 1 else 0
+        return text.startswith(search, position)
+
+    def _string_ends_with(self, text: str, arguments: list[object]) -> bool:
+        search = to_string(arguments[0]) if arguments else "undefined"
+        end = (
+            len(text)
+            if len(arguments) < 2 or arguments[1] is JS_UNDEFINED
+            else self._substring_index(arguments[1])
+        )
+        return text[:end].endswith(search)
+
+    def _string_index_of(self, text: str, arguments: list[object]) -> int:
+        search = to_string(arguments[0]) if arguments else "undefined"
+        position = self._substring_index(arguments[1]) if len(arguments) > 1 else 0
+        return text.find(search, position)
+
+    def _array_reverse(self, array: JSArray) -> JSArray:
+        array.items.reverse()
+        return array
+
+    def _array_join(self, array: JSArray, arguments: list[object]) -> str:
+        if not arguments or arguments[0] is JS_UNDEFINED:
+            separator = ","
+        else:
+            separator = to_string(arguments[0])
+
+        return separator.join(self._join_item_to_string(item) for item in array.items)
+
+    def _join_item_to_string(self, item: object) -> str:
+        if item is JS_NULL or item is JS_UNDEFINED:
+            return ""
+        return to_string(item)
+
+    def _substring_index(self, value: object) -> int:
+        number = to_number(value)
+        if number != number or number < 0:
+            return 0
+        return int(number)
+
+    def _slice_index(self, value: object, length: int) -> int:
+        number = to_number(value)
+        if number != number:
+            return 0
+
+        index = int(number)
+        if index < 0:
+            return max(length + index, 0)
+        return min(index, length)
 
 
 def evaluate_expression(source: str) -> object:
