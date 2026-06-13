@@ -11,6 +11,7 @@ from thunder_js.ast_nodes import (
     CallExpression,
     ComputedMemberExpression,
     ContinueStatement,
+    DoWhileStatement,
     Expression,
     ExpressionStatement,
     ForStatement,
@@ -32,6 +33,8 @@ from thunder_js.ast_nodes import (
     Statement,
     SpreadElement,
     StringLiteral,
+    SwitchCase,
+    SwitchStatement,
     UnaryExpression,
     UndefinedLiteral,
     VariableDeclaration,
@@ -67,6 +70,7 @@ class Parser:
         self.tokens = tokens
         self.current = 0
         self.loop_depth = 0
+        self.switch_depth = 0
         self.function_depth = 0
 
     def parse(self) -> Expression:
@@ -98,11 +102,18 @@ class Parser:
             return self._if_statement()
         if self._match(TokenType.WHILE):
             return self._while_statement()
+        if self._match(TokenType.DO):
+            return self._do_while_statement()
         if self._match(TokenType.FOR):
             return self._for_statement()
+        if self._match(TokenType.SWITCH):
+            return self._switch_statement()
         if self._match(TokenType.BREAK):
-            if self.loop_depth == 0:
-                raise self._error(self._previous(), "break used outside of a loop.")
+            if self.loop_depth == 0 and self.switch_depth == 0:
+                raise self._error(
+                    self._previous(),
+                    "break used outside of a loop or switch.",
+                )
             self._optional_semicolon()
             return BreakStatement()
         if self._match(TokenType.CONTINUE):
@@ -168,6 +179,20 @@ class Parser:
             self.loop_depth -= 1
         return WhileStatement(test, body)
 
+    def _do_while_statement(self) -> DoWhileStatement:
+        self.loop_depth += 1
+        try:
+            body = self._statement()
+        finally:
+            self.loop_depth -= 1
+
+        self._consume(TokenType.WHILE, "Expected 'while' after do body.")
+        self._consume(TokenType.LEFT_PAREN, "Expected '(' after while.")
+        test = self.parse_expression()
+        self._consume(TokenType.RIGHT_PAREN, "Expected ')' after do while condition.")
+        self._optional_semicolon()
+        return DoWhileStatement(body, test)
+
     def _for_statement(self) -> ForStatement:
         self._consume(TokenType.LEFT_PAREN, "Expected '(' after for.")
 
@@ -199,6 +224,54 @@ class Parser:
         finally:
             self.loop_depth -= 1
         return ForStatement(initializer, condition, update, body)
+
+    def _switch_statement(self) -> SwitchStatement:
+        self._consume(TokenType.LEFT_PAREN, "Expected '(' after switch.")
+        discriminant = self.parse_expression()
+        self._consume(TokenType.RIGHT_PAREN, "Expected ')' after switch expression.")
+        self._consume(TokenType.LEFT_BRACE, "Expected '{' before switch body.")
+
+        cases = []
+        has_default = False
+        self.switch_depth += 1
+
+        try:
+            while not self._check(TokenType.RIGHT_BRACE) and not self._is_at_end():
+                if self._match(TokenType.CASE):
+                    test = self.parse_expression()
+                    self._consume(TokenType.COLON, "Expected ':' after case value.")
+                elif self._match(TokenType.DEFAULT):
+                    if has_default:
+                        raise self._error(
+                            self._previous(),
+                            "switch can only have one default case.",
+                        )
+                    has_default = True
+                    test = None
+                    self._consume(TokenType.COLON, "Expected ':' after default.")
+                else:
+                    raise self._error(
+                        self._peek(),
+                        "Expected 'case' or 'default' in switch body.",
+                    )
+
+                consequent = []
+                while (
+                    not self._check(TokenType.CASE)
+                    and not self._check(TokenType.DEFAULT)
+                    and not self._check(TokenType.RIGHT_BRACE)
+                    and not self._is_at_end()
+                ):
+                    if self._match(TokenType.SEMICOLON):
+                        continue
+                    consequent.append(self._statement())
+
+                cases.append(SwitchCase(test, consequent))
+        finally:
+            self.switch_depth -= 1
+
+        self._consume(TokenType.RIGHT_BRACE, "Expected '}' after switch body.")
+        return SwitchStatement(discriminant, cases)
 
     def _function_declaration(self) -> FunctionDeclaration:
         name = self._consume(TokenType.IDENTIFIER, "Expected function name.")
@@ -237,13 +310,16 @@ class Parser:
     def _function_body(self) -> BlockStatement:
         self._consume(TokenType.LEFT_BRACE, "Expected '{' before function body.")
         previous_loop_depth = self.loop_depth
+        previous_switch_depth = self.switch_depth
         self.loop_depth = 0
+        self.switch_depth = 0
         self.function_depth += 1
         try:
             body = self._block_statement()
         finally:
             self.function_depth -= 1
             self.loop_depth = previous_loop_depth
+            self.switch_depth = previous_switch_depth
         return body
 
     def _return_statement(self) -> ReturnStatement:

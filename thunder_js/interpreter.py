@@ -14,6 +14,7 @@ from thunder_js.ast_nodes import (
     CallExpression,
     ComputedMemberExpression,
     ContinueStatement,
+    DoWhileStatement,
     ExpressionStatement,
     ForStatement,
     FunctionDeclaration,
@@ -32,6 +33,7 @@ from thunder_js.ast_nodes import (
     ReturnStatement,
     SpreadElement,
     StringLiteral,
+    SwitchStatement,
     UnaryExpression,
     UndefinedLiteral,
     VariableDeclaration,
@@ -183,8 +185,14 @@ class Interpreter:
         if isinstance(statement, WhileStatement):
             self._execute_while(statement)
             return
+        if isinstance(statement, DoWhileStatement):
+            self._execute_do_while(statement)
+            return
         if isinstance(statement, ForStatement):
             self._execute_for(statement)
+            return
+        if isinstance(statement, SwitchStatement):
+            self._execute_switch(statement)
             return
         if isinstance(statement, FunctionDeclaration):
             self._execute_function_declaration(statement)
@@ -336,6 +344,18 @@ class Interpreter:
             except BreakSignal:
                 break
 
+    def _execute_do_while(self, statement: DoWhileStatement) -> None:
+        while True:
+            try:
+                self.execute(statement.body)
+            except ContinueSignal:
+                pass
+            except BreakSignal:
+                break
+
+            if not to_boolean(self.evaluate(statement.test)):
+                break
+
     def _execute_for(self, statement: ForStatement) -> None:
         loop_environment = Environment(self.environment)
         previous = self.environment
@@ -363,6 +383,31 @@ class Interpreter:
                     self.evaluate(statement.update)
         finally:
             self.environment = previous
+
+    def _execute_switch(self, statement: SwitchStatement) -> None:
+        discriminant = self.evaluate(statement.discriminant)
+        default_index = None
+        start_index = None
+
+        for index, case in enumerate(statement.cases):
+            if case.test is None:
+                default_index = index
+                continue
+
+            if strict_equal(discriminant, self.evaluate(case.test)):
+                start_index = index
+                break
+
+        if start_index is None:
+            start_index = default_index
+        if start_index is None:
+            return
+
+        try:
+            for case in statement.cases[start_index:]:
+                self._execute_statements(case.consequent)
+        except BreakSignal:
+            return
 
     def _evaluate_unary(self, expression: UnaryExpression) -> object:
         value = self.evaluate(expression.argument)

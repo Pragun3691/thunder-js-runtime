@@ -47,6 +47,12 @@ class WhileStatement(Statement):
 
 
 @dataclass(frozen=True)
+class DoWhileStatement(Statement):
+    body: Statement
+    test: Expression
+
+
+@dataclass(frozen=True)
 class ForStatement(Statement):
     initializer: Statement | Expression | None
     condition: Expression | None
@@ -62,6 +68,18 @@ class BreakStatement(Statement):
 @dataclass(frozen=True)
 class ContinueStatement(Statement):
     pass
+
+
+@dataclass(frozen=True)
+class SwitchCase:
+    test: Expression | None
+    consequent: list[Statement]
+
+
+@dataclass(frozen=True)
+class SwitchStatement(Statement):
+    discriminant: Expression
+    cases: list[SwitchCase]
 
 
 @dataclass(frozen=True)
