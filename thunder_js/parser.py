@@ -1,0 +1,266 @@
+"""Expression parser for the Thunder JavaScript runtime."""
+
+from thunder_js.ast_nodes import (
+    AssignmentExpression,
+    BinaryExpression,
+    BooleanLiteral,
+    CallExpression,
+    ComputedMemberExpression,
+    Expression,
+    GroupingExpression,
+    Identifier,
+    LogicalExpression,
+    NullLiteral,
+    NumericLiteral,
+    PostfixUpdateExpression,
+    PrefixUpdateExpression,
+    PropertyAccessExpression,
+    StringLiteral,
+    UnaryExpression,
+    UndefinedLiteral,
+)
+from thunder_js.tokens import Token, TokenType
+
+
+ASSIGNMENT_OPERATORS = {
+    TokenType.EQUAL,
+    TokenType.PLUS_EQUAL,
+    TokenType.MINUS_EQUAL,
+    TokenType.STAR_EQUAL,
+    TokenType.SLASH_EQUAL,
+}
+
+UPDATE_OPERATORS = {TokenType.PLUS_PLUS, TokenType.MINUS_MINUS}
+ASSIGNMENT_TARGET_TYPES = (
+    Identifier,
+    PropertyAccessExpression,
+    ComputedMemberExpression,
+)
+
+
+class ParserError(Exception):
+    """Raised when tokens do not form a valid expression."""
+
+
+class Parser:
+    """Parse one JavaScript expression from a token list."""
+
+    def __init__(self, tokens: list[Token]):
+        self.tokens = tokens
+        self.current = 0
+
+    def parse(self) -> Expression:
+        expression = self.parse_expression()
+        self._consume(TokenType.EOF, "Expected end of expression.")
+        return expression
+
+    def parse_expression(self) -> Expression:
+        return self._assignment()
+
+    def _assignment(self) -> Expression:
+        target = self._logical_or()
+
+        if self._match(*ASSIGNMENT_OPERATORS):
+            operator = self._previous().lexeme
+            self._require_assignment_target(target)
+            value = self._assignment()
+            return AssignmentExpression(target, operator, value)
+
+        return target
+
+    def _logical_or(self) -> Expression:
+        expression = self._logical_and()
+
+        while self._match(TokenType.OR_OR):
+            operator = self._previous().lexeme
+            right = self._logical_and()
+            expression = LogicalExpression(expression, operator, right)
+
+        return expression
+
+    def _logical_and(self) -> Expression:
+        expression = self._equality()
+
+        while self._match(TokenType.AND_AND):
+            operator = self._previous().lexeme
+            right = self._equality()
+            expression = LogicalExpression(expression, operator, right)
+
+        return expression
+
+    def _equality(self) -> Expression:
+        expression = self._comparison()
+
+        while self._match(
+            TokenType.EQUAL_EQUAL,
+            TokenType.BANG_EQUAL,
+            TokenType.EQUAL_EQUAL_EQUAL,
+            TokenType.BANG_EQUAL_EQUAL,
+        ):
+            operator = self._previous().lexeme
+            right = self._comparison()
+            expression = BinaryExpression(expression, operator, right)
+
+        return expression
+
+    def _comparison(self) -> Expression:
+        expression = self._term()
+
+        while self._match(
+            TokenType.LESS,
+            TokenType.LESS_EQUAL,
+            TokenType.GREATER,
+            TokenType.GREATER_EQUAL,
+        ):
+            operator = self._previous().lexeme
+            right = self._term()
+            expression = BinaryExpression(expression, operator, right)
+
+        return expression
+
+    def _term(self) -> Expression:
+        expression = self._factor()
+
+        while self._match(TokenType.PLUS, TokenType.MINUS):
+            operator = self._previous().lexeme
+            right = self._factor()
+            expression = BinaryExpression(expression, operator, right)
+
+        return expression
+
+    def _factor(self) -> Expression:
+        expression = self._exponent()
+
+        while self._match(TokenType.STAR, TokenType.SLASH, TokenType.PERCENT):
+            operator = self._previous().lexeme
+            right = self._exponent()
+            expression = BinaryExpression(expression, operator, right)
+
+        return expression
+
+    def _exponent(self) -> Expression:
+        expression = self._unary()
+
+        if self._match(TokenType.STAR_STAR):
+            operator = self._previous().lexeme
+            right = self._exponent()
+            return BinaryExpression(expression, operator, right)
+
+        return expression
+
+    def _unary(self) -> Expression:
+        if self._match(TokenType.BANG, TokenType.MINUS, TokenType.PLUS):
+            operator = self._previous().lexeme
+            return UnaryExpression(operator, self._unary())
+
+        if self._match(*UPDATE_OPERATORS):
+            operator = self._previous().lexeme
+            argument = self._unary()
+            self._require_assignment_target(argument)
+            return PrefixUpdateExpression(operator, argument)
+
+        return self._postfix()
+
+    def _postfix(self) -> Expression:
+        expression = self._call_or_member()
+
+        while self._match(*UPDATE_OPERATORS):
+            operator = self._previous().lexeme
+            self._require_assignment_target(expression)
+            expression = PostfixUpdateExpression(expression, operator)
+
+        return expression
+
+    def _call_or_member(self) -> Expression:
+        expression = self._primary()
+
+        while True:
+            if self._match(TokenType.LEFT_PAREN):
+                expression = self._finish_call(expression)
+            elif self._match(TokenType.DOT):
+                name = self._consume(
+                    TokenType.IDENTIFIER, "Expected property name after '.'."
+                )
+                expression = PropertyAccessExpression(expression, Identifier(name.lexeme))
+            elif self._match(TokenType.LEFT_BRACKET):
+                property_expression = self.parse_expression()
+                self._consume(TokenType.RIGHT_BRACKET, "Expected ']' after property.")
+                expression = ComputedMemberExpression(expression, property_expression)
+            else:
+                return expression
+
+    def _finish_call(self, callee: Expression) -> CallExpression:
+        arguments = []
+
+        if not self._check(TokenType.RIGHT_PAREN):
+            while True:
+                arguments.append(self.parse_expression())
+                if not self._match(TokenType.COMMA):
+                    break
+
+        self._consume(TokenType.RIGHT_PAREN, "Expected ')' after arguments.")
+        return CallExpression(callee, arguments)
+
+    def _primary(self) -> Expression:
+        if self._match(TokenType.NUMBER):
+            return NumericLiteral(self._previous().literal)
+        if self._match(TokenType.STRING):
+            return StringLiteral(self._previous().literal)
+        if self._match(TokenType.TRUE):
+            return BooleanLiteral(True)
+        if self._match(TokenType.FALSE):
+            return BooleanLiteral(False)
+        if self._match(TokenType.NULL):
+            return NullLiteral()
+        if self._match(TokenType.UNDEFINED):
+            return UndefinedLiteral()
+        if self._match(TokenType.IDENTIFIER):
+            return Identifier(self._previous().lexeme)
+
+        if self._match(TokenType.LEFT_PAREN):
+            expression = self.parse_expression()
+            self._consume(TokenType.RIGHT_PAREN, "Expected ')' after expression.")
+            return GroupingExpression(expression)
+
+        raise self._error(self._peek(), "Expected expression.")
+
+    def _require_assignment_target(self, expression: Expression) -> None:
+        if isinstance(expression, ASSIGNMENT_TARGET_TYPES):
+            return
+
+        raise self._error(self._previous(), "Expected assignment target.")
+
+    def _match(self, *token_types: TokenType) -> bool:
+        for token_type in token_types:
+            if self._check(token_type):
+                self._advance()
+                return True
+        return False
+
+    def _consume(self, token_type: TokenType, message: str) -> Token:
+        if self._check(token_type):
+            return self._advance()
+
+        raise self._error(self._peek(), message)
+
+    def _check(self, token_type: TokenType) -> bool:
+        if self._is_at_end() and token_type != TokenType.EOF:
+            return False
+        return self._peek().type == token_type
+
+    def _advance(self) -> Token:
+        if not self._is_at_end():
+            self.current += 1
+        return self._previous()
+
+    def _is_at_end(self) -> bool:
+        return self._peek().type == TokenType.EOF
+
+    def _peek(self) -> Token:
+        return self.tokens[self.current]
+
+    def _previous(self) -> Token:
+        return self.tokens[self.current - 1]
+
+    def _error(self, token: Token, message: str) -> ParserError:
+        return ParserError(f"{message} at line {token.line}, column {token.column}.")
