@@ -40,32 +40,35 @@ The codebase keeps these pieces separated:
 
 ## Supported Features
 
-- Literals: numbers, strings, booleans, `null`, `undefined`, arrays, objects,
-  and minimal `Date` values.
-- Expressions: grouping, unary operators, arithmetic, exponentiation,
-  comparisons, equality, logical operators, assignments, compound assignments,
-  prefix/postfix `++` and `--`, member access, computed access, calls, spread
-  arguments, and `new Date(...)`.
+- Literals and globals: numbers, strings, template literals, booleans, `null`,
+  `undefined`, `NaN`, `Infinity`, arrays, objects, and minimal `Date` values.
+- Expressions: grouping, unary operators including `typeof`, arithmetic,
+  exponentiation, comparisons, equality, logical operators, ternary expressions,
+  assignments, compound assignments including `%=` and `**=`, prefix/postfix
+  `++` and `--` on variables, properties, and indexes, member access, computed
+  access, calls, spread arguments, and `new Date(...)`.
 - Statements: expression statements, `let`, `const`, blocks, `if`/`else`,
-  `switch`/`case`/`default`, `for`, `while`, `do...while`, `break`,
+  `switch`/`case`/`default`, `for`, `for...of`, `while`, `do...while`, `break`,
   `continue`, function declarations, and `return`.
 - Scoping: lexical environments, parent-scope lookup, variable shadowing,
   function-local scope, closure capture, function-declaration hoisting, and
-  const reassignment protection.
+  const reassignment protection, including per-iteration `let` bindings for
+  closures in classic `for` loops.
 - Functions: declarations, expressions, arrow functions, parameters, rest
-  parameters, recursion, closures, callbacks, returned functions, and missing
-  arguments as `undefined`.
+  parameters, default parameters, recursion, closures, callbacks, returned
+  functions, and missing arguments as `undefined`.
 - Arrays: literals, indexing, length, indexed assignment, array spread,
   `push`, `pop`, `shift`, `unshift`, `slice`, `splice`, `concat`, `includes`,
   `indexOf`, `reverse`, `join`, default `sort`, `map`, `filter`, `reduce`,
-  `find`, `some`, and `every`.
+  `find`, `some`, `every`, `forEach`, and `Array.isArray`.
 - Strings: length, `split`, `replace`, `replaceAll`, `substring`, `slice`,
   `trim`, `toUpperCase`, `toLowerCase`, `includes`, `startsWith`, `endsWith`,
   and `indexOf`.
 - Objects: object literals, empty objects, identifier keys, string keys,
   numeric keys converted to strings, nested objects, property reads, computed
-  reads, property assignment, adding properties, shallow object spread, and
-  missing properties as `undefined`.
+  reads, shorthand properties, property assignment, adding properties, shallow
+  object spread, `Object.keys`, `Object.values`, `Object.entries`, and missing
+  properties as `undefined`.
 
 Object spread copies properties into a new object and is shallow:
 
@@ -74,9 +77,10 @@ let base = { name: "Pragun", age: 20 };
 let updated = { ...base, age: 21 };
 ```
 
-- Built-ins: `console.log`, `Math.abs`, `Math.ceil`, `Math.floor`,
-  `Math.round`, `Math.max`, `Math.min`, `Math.pow`, `Math.sqrt`, `Math.trunc`,
-  `Math.random`, `Number`, `String`, `Boolean`, `parseInt`, `parseFloat`, and
+- Built-ins: `console.log`, `isNaN`, `isFinite`, `Math.PI`, `Math.E`,
+  `Math.LN2`, `Math.abs`, `Math.ceil`, `Math.floor`, `Math.round`, `Math.max`,
+  `Math.min`, `Math.pow`, `Math.sqrt`, `Math.trunc`, `Math.random`, `Number`,
+  `String`, `Boolean`, `parseInt`, `parseFloat`, `JSON.stringify`, and
   `Date.now`.
 - Minimal Date support: `new Date()`, `new Date(milliseconds)`, `getTime`,
   `getFullYear`, `getMonth`, `getDate`, `getDay`, `getHours`, `getMinutes`,
@@ -89,8 +93,7 @@ Notable missing or incomplete areas include:
 
 - No complete ECMAScript compatibility.
 - No classes, prototypes, `this`, modules, imports, async functions, generators,
-  promises, regular expressions, destructuring, default parameters, or full
-  standard library.
+  promises, regular expressions, destructuring, or full standard library.
 - Date support is intentionally minimal and does not attempt full JavaScript
   date parsing or timezone behavior.
 - Object output is basic; full JSON-style formatting is not a goal.
@@ -186,6 +189,12 @@ Additional examples show later supported features:
 - `examples/13_complex_edge_test.js`
 - `examples/14_coercion_edges.js`
 - `examples/15_object_spread.js`
+- `examples/16_globals_math_constants.js`
+- `examples/17_assignment_updates.js`
+- `examples/18_ternary_typeof_defaults.js`
+- `examples/19_iteration_helpers.js`
+- `examples/20_template_json.js`
+- `examples/21_loop_closure.js`
 
 ## Repository Structure
 
