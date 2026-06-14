@@ -670,10 +670,13 @@ class Parser:
 
         if not self._check(TokenType.RIGHT_BRACE):
             while True:
-                key = self._object_property_key()
-                self._consume(TokenType.COLON, "Expected ':' after object key.")
-                value = self.parse_expression()
-                properties.append(ObjectProperty(key, value))
+                if self._match(TokenType.ELLIPSIS):
+                    properties.append(SpreadElement(self.parse_expression()))
+                else:
+                    key = self._object_property_key()
+                    self._consume(TokenType.COLON, "Expected ':' after object key.")
+                    value = self.parse_expression()
+                    properties.append(ObjectProperty(key, value))
 
                 if not self._match(TokenType.COMMA):
                     break

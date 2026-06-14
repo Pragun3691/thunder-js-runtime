@@ -128,7 +128,7 @@ class ObjectProperty:
 
 @dataclass(frozen=True)
 class ObjectLiteral(Expression):
-    properties: list[ObjectProperty]
+    properties: list[ObjectProperty | SpreadElement]
 
 
 @dataclass(frozen=True)

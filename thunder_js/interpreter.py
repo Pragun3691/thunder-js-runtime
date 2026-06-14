@@ -619,7 +619,13 @@ class Interpreter:
         properties = {}
 
         for property_node in expression.properties:
-            properties[property_node.key] = self.evaluate(property_node.value)
+            if isinstance(property_node, SpreadElement):
+                value = self.evaluate(property_node.expression)
+                if not isinstance(value, JSObject):
+                    raise InterpreterError("Object spread value must be an object.")
+                properties.update(value.properties)
+            else:
+                properties[property_node.key] = self.evaluate(property_node.value)
 
         return JSObject(properties)
 

@@ -64,8 +64,16 @@ The codebase keeps these pieces separated:
   and `indexOf`.
 - Objects: object literals, empty objects, identifier keys, string keys,
   numeric keys converted to strings, nested objects, property reads, computed
-  reads, property assignment, adding properties, and missing properties as
-  `undefined`.
+  reads, property assignment, adding properties, shallow object spread, and
+  missing properties as `undefined`.
+
+Object spread copies properties into a new object and is shallow:
+
+```js
+let base = { name: "Pragun", age: 20 };
+let updated = { ...base, age: 21 };
+```
+
 - Built-ins: `console.log`, `Math.abs`, `Math.ceil`, `Math.floor`,
   `Math.round`, `Math.max`, `Math.min`, `Math.pow`, `Math.sqrt`, `Math.trunc`,
   `Math.random`, `Number`, `String`, `Boolean`, `parseInt`, `parseFloat`, and
@@ -175,6 +183,9 @@ Additional examples show later supported features:
 - `examples/10_spread_rest.js`
 - `examples/11_math_conversions.js`
 - `examples/12_date.js`
+- `examples/13_complex_edge_test.js`
+- `examples/14_coercion_edges.js`
+- `examples/15_object_spread.js`
 
 ## Repository Structure
 
