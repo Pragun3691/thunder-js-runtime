@@ -112,7 +112,10 @@ class Lexer:
                 self._add_token(TokenType.MINUS)
         elif char == "*":
             if self._match("*"):
-                self._add_token(TokenType.STAR_STAR)
+                if self._match("="):
+                    self._add_token(TokenType.STAR_STAR_EQUAL)
+                else:
+                    self._add_token(TokenType.STAR_STAR)
             elif self._match("="):
                 self._add_token(TokenType.STAR_EQUAL)
             else:
@@ -127,7 +130,10 @@ class Lexer:
             else:
                 self._add_token(TokenType.SLASH)
         elif char == "%":
-            self._add_token(TokenType.PERCENT)
+            if self._match("="):
+                self._add_token(TokenType.PERCENT_EQUAL)
+            else:
+                self._add_token(TokenType.PERCENT)
         elif char == "=":
             if self._match("="):
                 if self._match("="):

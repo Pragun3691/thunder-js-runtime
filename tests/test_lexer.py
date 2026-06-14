@@ -104,7 +104,7 @@ def test_punctuation_and_brackets_are_tokenized():
 
 
 def test_all_required_operators_are_tokenized_longest_match_first():
-    source = "+ - * / % ** = == === != !== < <= > >= && || ! ++ -- += -= *= /= =>"
+    source = "+ - * / % ** = == === != !== < <= > >= && || ! ++ -- += -= *= /= %= **= =>"
 
     assert token_types(source) == [
         TokenType.PLUS,
@@ -131,6 +131,8 @@ def test_all_required_operators_are_tokenized_longest_match_first():
         TokenType.MINUS_EQUAL,
         TokenType.STAR_EQUAL,
         TokenType.SLASH_EQUAL,
+        TokenType.PERCENT_EQUAL,
+        TokenType.STAR_STAR_EQUAL,
         TokenType.ARROW,
         TokenType.EOF,
     ]

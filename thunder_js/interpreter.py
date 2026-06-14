@@ -111,12 +111,21 @@ class JSFunction(JSCallable):
         body: object,
         closure: Environment,
         interpreter: "Interpreter",
+        name: str | None = None,
     ):
         self.parameters = parameters
         self.rest_parameter = rest_parameter
         self.body = body
         self.closure = closure
         self.interpreter = interpreter
+        self.name = name
+
+    def __str__(self) -> str:
+        if self.name is not None:
+            return f"[Function: {self.name}]"
+        return "[Function]"
+
+    __repr__ = __str__
 
     def call(self, arguments: list[object]) -> object:
         self.interpreter.call_depth += 1
@@ -246,6 +255,7 @@ class Interpreter:
                 expression.body,
                 self.environment,
                 self,
+                expression.name,
             )
         if isinstance(expression, ArrowFunctionExpression):
             return JSFunction(
@@ -340,6 +350,7 @@ class Interpreter:
             statement.body,
             self.environment,
             self,
+            statement.name,
         )
 
         try:
@@ -543,6 +554,10 @@ class Interpreter:
                 value = to_number(left) * to_number(right)
             elif expression.operator == "/=":
                 value = js_divide(left, right)
+            elif expression.operator == "%=":
+                value = js_remainder(left, right)
+            elif expression.operator == "**=":
+                value = self._power(left, right)
             else:
                 raise InterpreterError(
                     f"Unsupported assignment operator {expression.operator}."
@@ -571,27 +586,30 @@ class Interpreter:
         raise InterpreterError("Invalid assignment target.")
 
     def _evaluate_prefix_update(self, expression: PrefixUpdateExpression) -> object:
-        new_value = self._apply_update(expression.argument, expression.operator)
+        _, new_value = self._apply_update(
+            expression.argument, expression.operator
+        )
         return new_value
 
     def _evaluate_postfix_update(self, expression: PostfixUpdateExpression) -> object:
-        if not isinstance(expression.argument, Identifier):
-            raise InterpreterError("Only variable updates are supported yet.")
-
-        old_value = self._look_up_identifier(expression.argument)
-        self._apply_update(expression.argument, expression.operator)
+        old_value, _ = self._apply_update(
+            expression.argument, expression.operator
+        )
         return old_value
 
-    def _apply_update(self, target: object, operator: str) -> object:
-        if not isinstance(target, Identifier):
-            raise InterpreterError("Only variable updates are supported yet.")
-
-        old_value = self._look_up_identifier(target)
-        amount = 1 if operator == "++" else -1
-        new_value = to_number(old_value) + amount
+    def _apply_update(self, target: object, operator: str) -> tuple[object, object]:
+        if not isinstance(
+            target, (Identifier, PropertyAccessExpression, ComputedMemberExpression)
+        ):
+            raise InterpreterError("Invalid update target.")
 
         try:
-            return self.environment.assign(target.name, new_value)
+            old_value = self._read_assignment_target(target)
+            amount = 1 if operator == "++" else -1
+            new_value = to_number(old_value) + amount
+            assigned_value = self._assign_target(target, new_value)
+            return old_value, assigned_value
+
         except (NameError, TypeError) as error:
             raise InterpreterError(str(error)) from error
 

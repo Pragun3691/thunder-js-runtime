@@ -50,6 +50,8 @@ ASSIGNMENT_OPERATORS = {
     TokenType.MINUS_EQUAL,
     TokenType.STAR_EQUAL,
     TokenType.SLASH_EQUAL,
+    TokenType.PERCENT_EQUAL,
+    TokenType.STAR_STAR_EQUAL,
 }
 
 UPDATE_OPERATORS = {TokenType.PLUS_PLUS, TokenType.MINUS_MINUS}
