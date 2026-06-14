@@ -2,11 +2,13 @@
 
 A small JavaScript interpreter built from scratch in Python for Thunder Hackathon 2.
 
+Supports an educational subset of JavaScript covering the supplied tests and related language features. It is not a complete ECMAScript implementation.
+
 ## Quick Start
 
 ### Installation
 
-Use Python 3 and install the test dependency:
+Use Python 3 and install dependencies:
 
 ```powershell
 python -m pip install -r requirements.txt
@@ -66,8 +68,6 @@ clear, beginner-readable runtime for hackathon programs and tests, not as a
 production JavaScript engine.
 
 Program output goes to stdout. Syntax and runtime errors are reported to stderr.
-
-Supports an educational subset of JavaScript covering the supplied tests and related language features. It is not a complete ECMAScript implementation.
 
 ### Hackathon Context
 
