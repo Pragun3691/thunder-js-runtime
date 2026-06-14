@@ -440,6 +440,13 @@ class Interpreter:
             elif statement.initializer is not None:
                 self.evaluate(statement.initializer)
 
+            if (
+                isinstance(statement.initializer, VariableDeclaration)
+                and statement.initializer.kind == "let"
+            ):
+                self._execute_for_with_per_iteration_let(statement, loop_environment)
+                return
+
             while True:
                 if statement.condition is not None:
                     if not to_boolean(self.evaluate(statement.condition)):
@@ -456,6 +463,39 @@ class Interpreter:
                     self.evaluate(statement.update)
         finally:
             self.environment = previous
+
+    def _execute_for_with_per_iteration_let(
+        self, statement: ForStatement, loop_environment: Environment
+    ) -> None:
+        while True:
+            self.environment = loop_environment
+            if statement.condition is not None:
+                if not to_boolean(self.evaluate(statement.condition)):
+                    break
+
+            iteration_environment = self._copy_environment(loop_environment)
+            self.environment = iteration_environment
+
+            try:
+                self.execute(statement.body)
+            except ContinueSignal:
+                pass
+            except BreakSignal:
+                break
+
+            loop_environment = self._copy_environment(iteration_environment)
+
+            if statement.update is not None:
+                self.environment = loop_environment
+                self.evaluate(statement.update)
+
+    def _copy_environment(self, environment: Environment) -> Environment:
+        copied = Environment(environment.parent)
+
+        for name, binding in environment.values.items():
+            copied.define(name, binding.value, mutable=binding.mutable)
+
+        return copied
 
     def _execute_for_of(self, statement: ForOfStatement) -> None:
         iterable = self.evaluate(statement.iterable)
