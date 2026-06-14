@@ -4,9 +4,11 @@ import math
 import random
 import re
 from collections.abc import Callable
+from datetime import datetime, timezone
 
 from thunder_js.environment import Environment
 from thunder_js.values import (
+    JSDate,
     JS_UNDEFINED,
     format_value,
     is_nan,
@@ -129,6 +131,61 @@ def _math_random(arguments: list[object]) -> float:
     return random.random()
 
 
+def _date_now(arguments: list[object]) -> int:
+    return _current_time_ms()
+
+
+def construct_date(arguments: list[object]) -> JSDate:
+    if not arguments:
+        return JSDate(_current_time_ms())
+
+    timestamp = to_number(arguments[0])
+    if is_nan(timestamp) or math.isinf(timestamp):
+        raise ValueError("Invalid Date timestamp.")
+
+    timestamp_ms = int(timestamp)
+    _date_to_datetime(JSDate(timestamp_ms))
+    return JSDate(timestamp_ms)
+
+
+def date_part(date: JSDate, part: str) -> int:
+    moment = _date_to_datetime(date)
+
+    if part == "year":
+        return moment.year
+    if part == "month":
+        return moment.month - 1
+    if part == "date":
+        return moment.day
+    if part == "day":
+        return (moment.weekday() + 1) % 7
+    if part == "hours":
+        return moment.hour
+    if part == "minutes":
+        return moment.minute
+    if part == "seconds":
+        return moment.second
+
+    raise ValueError(f"Unknown Date part {part}.")
+
+
+def date_to_iso_string(date: JSDate) -> str:
+    moment = _date_to_datetime(date)
+    text = moment.isoformat(timespec="milliseconds")
+    return text.replace("+00:00", "Z")
+
+
+def _current_time_ms() -> int:
+    return int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+
+
+def _date_to_datetime(date: JSDate) -> datetime:
+    try:
+        return datetime.fromtimestamp(date.timestamp_ms / 1000, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError) as error:
+        raise ValueError("Invalid Date timestamp.") from error
+
+
 def _number_function(arguments: list[object]) -> float:
     if not arguments:
         return 0.0
@@ -201,6 +258,11 @@ def create_global_environment(output: Callable[[str], None]) -> Environment:
     environment = Environment()
     environment.define("console", {"log": ConsoleLog(output)}, mutable=False)
     environment.define("Math", _math_object(), mutable=False)
+    environment.define(
+        "Date",
+        {"now": BuiltInFunction(_date_now)},
+        mutable=False,
+    )
     environment.define("Number", BuiltInFunction(_number_function), mutable=False)
     environment.define("String", BuiltInFunction(_string_function), mutable=False)
     environment.define("Boolean", BuiltInFunction(_boolean_function), mutable=False)

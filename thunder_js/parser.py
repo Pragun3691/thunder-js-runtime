@@ -21,6 +21,7 @@ from thunder_js.ast_nodes import (
     Identifier,
     IfStatement,
     LogicalExpression,
+    NewExpression,
     NullLiteral,
     NumericLiteral,
     ObjectLiteral,
@@ -592,6 +593,9 @@ class Parser:
                 return expression
 
     def _finish_call(self, callee: Expression) -> CallExpression:
+        return CallExpression(callee, self._call_arguments())
+
+    def _call_arguments(self) -> list[Expression | SpreadElement]:
         arguments = []
 
         if not self._check(TokenType.RIGHT_PAREN):
@@ -604,7 +608,7 @@ class Parser:
                     break
 
         self._consume(TokenType.RIGHT_PAREN, "Expected ')' after arguments.")
-        return CallExpression(callee, arguments)
+        return arguments
 
     def _primary(self) -> Expression:
         if self._match(TokenType.NUMBER):
@@ -621,6 +625,8 @@ class Parser:
             return UndefinedLiteral()
         if self._match(TokenType.FUNCTION):
             return self._function_expression()
+        if self._match(TokenType.NEW):
+            return self._new_expression()
         if self._match(TokenType.IDENTIFIER):
             return Identifier(self._previous().lexeme)
 
@@ -634,6 +640,12 @@ class Parser:
             return self._object_literal()
 
         raise self._error(self._peek(), "Expected expression.")
+
+    def _new_expression(self) -> NewExpression:
+        name = self._consume(TokenType.IDENTIFIER, "Expected constructor name after new.")
+        self._consume(TokenType.LEFT_PAREN, "Expected '(' after constructor name.")
+        arguments = self._call_arguments()
+        return NewExpression(Identifier(name.lexeme), arguments)
 
     def _array_literal(self) -> ArrayLiteral:
         elements = []

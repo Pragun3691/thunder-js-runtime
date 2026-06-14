@@ -17,6 +17,7 @@ KEYWORDS = {
     "default": TokenType.DEFAULT,
     "function": TokenType.FUNCTION,
     "return": TokenType.RETURN,
+    "new": TokenType.NEW,
     "true": TokenType.TRUE,
     "false": TokenType.FALSE,
     "null": TokenType.NULL,

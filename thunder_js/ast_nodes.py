@@ -218,6 +218,12 @@ class ComputedMemberExpression(Expression):
 
 
 @dataclass(frozen=True)
+class NewExpression(Expression):
+    callee: Expression
+    arguments: list[Expression | SpreadElement]
+
+
+@dataclass(frozen=True)
 class CallExpression(Expression):
     callee: Expression
     arguments: list[Expression | SpreadElement]

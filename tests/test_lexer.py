@@ -52,7 +52,7 @@ def test_single_and_double_quoted_strings_keep_literal_values():
 def test_identifiers_and_keywords_are_distinguished():
     source = (
         "let const var if else while do for switch case default function "
-        "return true false null undefined break continue console _name "
+        "return new true false null undefined break continue console _name "
         "$value name123"
     )
 
@@ -70,6 +70,7 @@ def test_identifiers_and_keywords_are_distinguished():
         TokenType.DEFAULT,
         TokenType.FUNCTION,
         TokenType.RETURN,
+        TokenType.NEW,
         TokenType.TRUE,
         TokenType.FALSE,
         TokenType.NULL,

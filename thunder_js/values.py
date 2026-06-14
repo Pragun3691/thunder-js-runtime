@@ -28,6 +28,13 @@ class JSObject:
     properties: dict[str, object]
 
 
+@dataclass(frozen=True)
+class JSDate:
+    """Small runtime Date value storing milliseconds since Unix epoch."""
+
+    timestamp_ms: int
+
+
 JS_NULL = JSNull()
 JS_UNDEFINED = JSUndefined()
 
@@ -87,6 +94,8 @@ def to_string(value: object) -> str:
         return ",".join(to_string(item) for item in value.items)
     if isinstance(value, JSObject):
         return "[object Object]"
+    if isinstance(value, JSDate):
+        return "[object Date]"
     return str(value)
 
 

@@ -23,6 +23,7 @@ from thunder_js.ast_nodes import (
     Identifier,
     IfStatement,
     LogicalExpression,
+    NewExpression,
     NullLiteral,
     NumericLiteral,
     ObjectLiteral,
@@ -40,11 +41,18 @@ from thunder_js.ast_nodes import (
     WhileStatement,
 )
 from thunder_js.environment import Environment
-from thunder_js.js_builtins import JSCallable, create_global_environment
+from thunder_js.js_builtins import (
+    JSCallable,
+    construct_date,
+    create_global_environment,
+    date_part,
+    date_to_iso_string,
+)
 from thunder_js.lexer import Lexer
 from thunder_js.parser import Parser
 from thunder_js.values import (
     JSArray,
+    JSDate,
     JS_NULL,
     JSObject,
     JS_UNDEFINED,
@@ -87,7 +95,10 @@ class NativeMethod(JSCallable):
         self.method = method
 
     def call(self, arguments: list[object]) -> object:
-        return self.method(arguments)
+        try:
+            return self.method(arguments)
+        except ValueError as error:
+            raise InterpreterError(str(error)) from error
 
 
 class JSFunction(JSCallable):
@@ -260,6 +271,8 @@ class Interpreter:
             return self._get_computed_member(expression)
         if isinstance(expression, CallExpression):
             return self._evaluate_call(expression)
+        if isinstance(expression, NewExpression):
+            return self._evaluate_new(expression)
         if isinstance(expression, AssignmentExpression):
             return self._evaluate_assignment(expression)
         if isinstance(expression, PrefixUpdateExpression):
@@ -618,6 +631,8 @@ class Interpreter:
             return self._get_string_property(container, property_name)
         if isinstance(container, JSArray):
             return self._get_array_property(container, property_name)
+        if isinstance(container, JSDate):
+            return self._get_date_property(container, property_name)
         if isinstance(container, JSObject):
             return container.properties.get(property_name, JS_UNDEFINED)
         if isinstance(container, dict) and property_name in container:
@@ -704,6 +719,24 @@ class Interpreter:
 
         raise InterpreterError(f"Array method {property_name} is not defined.")
 
+    def _get_date_property(self, date: JSDate, property_name: str) -> object:
+        methods = {
+            "getTime": lambda args: date.timestamp_ms,
+            "getFullYear": lambda args: date_part(date, "year"),
+            "getMonth": lambda args: date_part(date, "month"),
+            "getDate": lambda args: date_part(date, "date"),
+            "getDay": lambda args: date_part(date, "day"),
+            "getHours": lambda args: date_part(date, "hours"),
+            "getMinutes": lambda args: date_part(date, "minutes"),
+            "getSeconds": lambda args: date_part(date, "seconds"),
+            "toISOString": lambda args: date_to_iso_string(date),
+        }
+
+        if property_name in methods:
+            return NativeMethod(methods[property_name])
+
+        raise InterpreterError(f"Date method {property_name} is not defined.")
+
     def _get_computed_member(self, expression: ComputedMemberExpression) -> object:
         container = self.evaluate(expression.object)
         key = self.evaluate(expression.property)
@@ -766,6 +799,17 @@ class Interpreter:
                 raise InterpreterError("Maximum call stack size exceeded.") from error
 
         raise InterpreterError("Value is not callable.")
+
+    def _evaluate_new(self, expression: NewExpression) -> object:
+        arguments = self._evaluate_call_arguments(expression.arguments)
+
+        if isinstance(expression.callee, Identifier) and expression.callee.name == "Date":
+            try:
+                return construct_date(arguments)
+            except ValueError as error:
+                raise InterpreterError(str(error)) from error
+
+        raise InterpreterError("Only Date construction is supported with new.")
 
     def _evaluate_call_arguments(self, argument_nodes: list[object]) -> list[object]:
         arguments = []

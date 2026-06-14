@@ -25,6 +25,7 @@ class TokenType(str, Enum):
     DEFAULT = "DEFAULT"
     FUNCTION = "FUNCTION"
     RETURN = "RETURN"
+    NEW = "NEW"
     TRUE = "TRUE"
     FALSE = "FALSE"
     NULL = "NULL"
