@@ -37,6 +37,7 @@ from thunder_js.ast_nodes import (
     SpreadElement,
     StringLiteral,
     SwitchStatement,
+    TemplateLiteral,
     UnaryExpression,
     UndefinedLiteral,
     VariableDeclaration,
@@ -259,6 +260,8 @@ class Interpreter:
             return expression.value
         if isinstance(expression, StringLiteral):
             return expression.value
+        if isinstance(expression, TemplateLiteral):
+            return self._evaluate_template_literal(expression)
         if isinstance(expression, BooleanLiteral):
             return expression.value
         if isinstance(expression, NullLiteral):
@@ -316,6 +319,17 @@ class Interpreter:
             return self._evaluate_postfix_update(expression)
 
         raise InterpreterError("Unknown expression.")
+
+    def _evaluate_template_literal(self, expression: TemplateLiteral) -> str:
+        text = ""
+
+        for part in expression.parts:
+            if isinstance(part, str):
+                text += part
+            else:
+                text += to_string(self.evaluate(part))
+
+        return text
 
     def _count_step(self) -> None:
         self.steps += 1

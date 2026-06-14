@@ -175,6 +175,8 @@ class Lexer:
                 self._raise_unexpected(char)
         elif char in ("'", '"'):
             self._string(char)
+        elif char == "`":
+            self._template_literal()
         elif char.isdigit():
             self._number(started_with_dot=False)
         elif self._is_identifier_start(char):
@@ -243,6 +245,130 @@ class Lexer:
             return quote
 
         return escapes.get(char, char)
+
+    def _template_literal(self) -> None:
+        parts = []
+        text = ""
+
+        while not self._is_at_end():
+            char = self._advance()
+
+            if char == "`":
+                if text:
+                    parts.append(("text", text))
+                self._add_token(TokenType.TEMPLATE, parts)
+                return
+
+            if char == "\\":
+                text += self._read_template_escape()
+                continue
+
+            if char == "$" and self._peek() == "{":
+                interpolation_line = self.line
+                interpolation_column = self.column - 1
+                self._advance()
+
+                if text:
+                    parts.append(("text", text))
+                    text = ""
+
+                expression_line = self.line
+                expression_column = self.column
+                expression_source = self._read_template_interpolation(
+                    interpolation_line,
+                    interpolation_column,
+                )
+                parts.append(
+                    (
+                        "expression",
+                        expression_source,
+                        expression_line,
+                        expression_column,
+                    )
+                )
+                continue
+
+            text += char
+
+        raise LexerError(
+            "Unterminated template literal starting at "
+            f"line {self.start_line}, column {self.start_column}."
+        )
+
+    def _read_template_escape(self) -> str:
+        if self._is_at_end():
+            self._raise_unterminated_template()
+
+        char = self._advance()
+
+        if char == "$" and self._peek() == "{":
+            self._advance()
+            return "${"
+
+        escapes = {
+            "`": "`",
+            "\\": "\\",
+            "n": "\n",
+            "r": "\r",
+            "t": "\t",
+        }
+        return escapes.get(char, char)
+
+    def _read_template_interpolation(
+        self, interpolation_line: int, interpolation_column: int
+    ) -> str:
+        expression = ""
+        brace_depth = 1
+
+        while not self._is_at_end():
+            char = self._advance()
+
+            if char in ("'", '"'):
+                expression += self._read_template_raw_string(char)
+                continue
+
+            if char == "{":
+                brace_depth += 1
+                expression += char
+                continue
+
+            if char == "}":
+                brace_depth -= 1
+                if brace_depth == 0:
+                    return expression
+                expression += char
+                continue
+
+            expression += char
+
+        raise LexerError(
+            "Unterminated template interpolation starting at "
+            f"line {interpolation_line}, column {interpolation_column}."
+        )
+
+    def _read_template_raw_string(self, quote: str) -> str:
+        text = quote
+
+        while not self._is_at_end():
+            char = self._advance()
+            text += char
+
+            if char == "\\":
+                if self._is_at_end():
+                    return text
+                text += self._advance()
+                continue
+
+            if char == quote:
+                return text
+
+        return text
+
+    def _raise_unterminated_template(self) -> None:
+        raise LexerError(
+            "Unterminated template literal starting at "
+            f"line {self.start_line}, column {self.start_column}."
+        )
 
     def _skip_line_comment(self) -> None:
         while self._peek() != "\n" and not self._is_at_end():

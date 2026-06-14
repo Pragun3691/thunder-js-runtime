@@ -9,6 +9,7 @@ class TokenType(str, Enum):
     # Literals and names
     NUMBER = "NUMBER"
     STRING = "STRING"
+    TEMPLATE = "TEMPLATE"
     IDENTIFIER = "IDENTIFIER"
 
     # Keywords

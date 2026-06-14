@@ -1,5 +1,6 @@
 """JavaScript built-ins used by the interpreter."""
 
+import json
 import math
 import random
 import re
@@ -10,8 +11,10 @@ from thunder_js.environment import Environment
 from thunder_js.values import (
     JSArray,
     JSDate,
+    JS_NULL,
     JSObject,
     JS_UNDEFINED,
+    format_number,
     format_value,
     is_nan,
     is_number,
@@ -245,6 +248,68 @@ def _object_entries(arguments: list[object]) -> JSArray:
     )
 
 
+def _json_stringify(arguments: list[object]) -> object:
+    value = arguments[0] if arguments else JS_UNDEFINED
+    serialized = _json_serialize(value, set(), in_array=False)
+
+    if serialized is None:
+        return JS_UNDEFINED
+    return serialized
+
+
+def _json_serialize(
+    value: object,
+    seen: set[int],
+    in_array: bool,
+) -> str | None:
+    if value is JS_UNDEFINED or isinstance(value, JSCallable):
+        return "null" if in_array else None
+    if value is JS_NULL:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if is_number(value):
+        number = float(value)
+        if is_nan(number) or math.isinf(number):
+            return "null"
+        return format_number(number)
+    if isinstance(value, str):
+        return json.dumps(value)
+
+    if isinstance(value, JSArray):
+        value_id = id(value)
+        if value_id in seen:
+            raise ValueError("Converting circular structure to JSON.")
+
+        seen.add(value_id)
+        try:
+            items = []
+            for item in value.items:
+                serialized = _json_serialize(item, seen, in_array=True)
+                items.append("null" if serialized is None else serialized)
+            return "[" + ",".join(items) + "]"
+        finally:
+            seen.remove(value_id)
+
+    if isinstance(value, JSObject):
+        value_id = id(value)
+        if value_id in seen:
+            raise ValueError("Converting circular structure to JSON.")
+
+        seen.add(value_id)
+        try:
+            properties = []
+            for key, property_value in value.properties.items():
+                serialized = _json_serialize(property_value, seen, in_array=False)
+                if serialized is not None:
+                    properties.append(json.dumps(key) + ":" + serialized)
+            return "{" + ",".join(properties) + "}"
+        finally:
+            seen.remove(value_id)
+
+    return "null" if in_array else None
+
+
 def _is_nan_function(arguments: list[object]) -> bool:
     return is_nan(_first_number(arguments))
 
@@ -321,12 +386,19 @@ def _object_object() -> dict[str, object]:
     }
 
 
+def _json_object() -> dict[str, object]:
+    return {
+        "stringify": BuiltInFunction(_json_stringify),
+    }
+
+
 def create_global_environment(output: Callable[[str], None]) -> Environment:
     environment = Environment()
     environment.define("console", {"log": ConsoleLog(output)}, mutable=False)
     environment.define("Math", _math_object(), mutable=False)
     environment.define("Array", _array_object(), mutable=False)
     environment.define("Object", _object_object(), mutable=False)
+    environment.define("JSON", _json_object(), mutable=False)
     environment.define(
         "Date",
         {"now": BuiltInFunction(_date_now)},

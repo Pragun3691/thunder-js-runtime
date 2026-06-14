@@ -38,6 +38,7 @@ from thunder_js.ast_nodes import (
     StringLiteral,
     SwitchCase,
     SwitchStatement,
+    TemplateLiteral,
     UnaryExpression,
     UndefinedLiteral,
     VariableDeclaration,
@@ -671,6 +672,8 @@ class Parser:
             return NumericLiteral(self._previous().literal)
         if self._match(TokenType.STRING):
             return StringLiteral(self._previous().literal)
+        if self._match(TokenType.TEMPLATE):
+            return self._template_literal(self._previous())
         if self._match(TokenType.TRUE):
             return BooleanLiteral(True)
         if self._match(TokenType.FALSE):
@@ -696,6 +699,31 @@ class Parser:
             return self._object_literal()
 
         raise self._error(self._peek(), "Expected expression.")
+
+    def _template_literal(self, token: Token) -> TemplateLiteral:
+        from thunder_js.lexer import Lexer, LexerError
+
+        parts = []
+
+        for part in token.literal:
+            if part[0] == "text":
+                parts.append(part[1])
+            else:
+                expression_source = part[1]
+                line = part[2]
+                column = part[3]
+
+                try:
+                    expression = Parser(Lexer(expression_source).tokenize()).parse()
+                except (LexerError, ParserError) as error:
+                    raise ParserError(
+                        "Invalid template interpolation starting at "
+                        f"line {line}, column {column}: {error}"
+                    ) from error
+
+                parts.append(expression)
+
+        return TemplateLiteral(parts)
 
     def _new_expression(self) -> NewExpression:
         name = self._consume(TokenType.IDENTIFIER, "Expected constructor name after new.")

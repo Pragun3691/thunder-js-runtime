@@ -153,6 +153,11 @@ class StringLiteral(Expression):
 
 
 @dataclass(frozen=True)
+class TemplateLiteral(Expression):
+    parts: list[str | Expression]
+
+
+@dataclass(frozen=True)
 class BooleanLiteral(Expression):
     value: bool
 
