@@ -204,6 +204,15 @@ def _boolean_function(arguments: list[object]) -> bool:
     return to_boolean(arguments[0])
 
 
+def _is_nan_function(arguments: list[object]) -> bool:
+    return is_nan(_first_number(arguments))
+
+
+def _is_finite_function(arguments: list[object]) -> bool:
+    value = _first_number(arguments)
+    return not is_nan(value) and not math.isinf(value)
+
+
 def _parse_int(arguments: list[object]) -> object:
     text = to_string(arguments[0] if arguments else JS_UNDEFINED).lstrip()
     match = re.match(r"([+-]?)(?:0[xX]([0-9a-fA-F]+)|([0-9]+))", text)
@@ -239,8 +248,11 @@ def _is_nan_or_infinite(value: object) -> bool:
     return is_nan(value) or (is_number(value) and math.isinf(value))
 
 
-def _math_object() -> dict[str, JSCallable]:
+def _math_object() -> dict[str, object]:
     return {
+        "PI": math.pi,
+        "E": math.e,
+        "LN2": math.log(2),
         "abs": BuiltInFunction(_math_abs),
         "ceil": BuiltInFunction(_math_ceil),
         "floor": BuiltInFunction(_math_floor),
@@ -266,6 +278,10 @@ def create_global_environment(output: Callable[[str], None]) -> Environment:
     environment.define("Number", BuiltInFunction(_number_function), mutable=False)
     environment.define("String", BuiltInFunction(_string_function), mutable=False)
     environment.define("Boolean", BuiltInFunction(_boolean_function), mutable=False)
+    environment.define("NaN", math.nan, mutable=False)
+    environment.define("Infinity", math.inf, mutable=False)
+    environment.define("isNaN", BuiltInFunction(_is_nan_function), mutable=False)
+    environment.define("isFinite", BuiltInFunction(_is_finite_function), mutable=False)
     environment.define("parseInt", BuiltInFunction(_parse_int), mutable=False)
     environment.define("parseFloat", BuiltInFunction(_parse_float), mutable=False)
     return environment

@@ -97,6 +97,73 @@ console.log(value >= 0 && value < 1);
     assert run_and_collect(source) == ["true"]
 
 
+def test_nan_and_infinity_globals_print_and_compare_like_javascript():
+    source = """
+console.log(NaN);
+console.log(Infinity);
+console.log(NaN === NaN);
+"""
+
+    assert run_and_collect(source) == ["NaN", "Infinity", "false"]
+
+
+def test_is_nan_uses_numeric_coercion():
+    source = """
+console.log(isNaN("abc"));
+console.log(isNaN("12"));
+console.log(isNaN(undefined));
+"""
+
+    assert run_and_collect(source) == ["true", "false", "true"]
+
+
+def test_is_finite_uses_numeric_coercion():
+    source = """
+console.log(isFinite(10));
+console.log(isFinite("10"));
+console.log(isFinite(Infinity));
+"""
+
+    assert run_and_collect(source) == ["true", "true", "false"]
+
+
+def test_math_constants_are_available():
+    source = """
+console.log(Math.PI);
+console.log(Math.E);
+console.log(Math.LN2);
+"""
+
+    assert run_and_collect(source) == [
+        "3.141592653589793",
+        "2.718281828459045",
+        "0.6931471805599453",
+    ]
+
+
+def test_nan_and_infinity_globals_cannot_be_reassigned():
+    cases = [
+        ("NaN = 1;", "NaN"),
+        ("Infinity = 1;", "Infinity"),
+    ]
+
+    for source, name in cases:
+        exit_code, stdout, stderr = run_cli(source)
+
+        assert exit_code == 1
+        assert stdout == ""
+        assert f"Assignment to constant variable {name}." in stderr
+        assert "Traceback" not in stderr
+
+
+def test_math_constants_cannot_be_reassigned():
+    exit_code, stdout, stderr = run_cli("Math.PI = 3;")
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert "Traceback" not in stderr
+
+
 def test_number_conversion():
     source = """
 console.log(Number("42"));

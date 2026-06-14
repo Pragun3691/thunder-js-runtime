@@ -1,0 +1,11 @@
+console.log(NaN);
+console.log(Infinity);
+console.log(NaN === NaN);
+console.log(isNaN("abc"));
+console.log(isNaN("12"));
+console.log(isFinite(10));
+console.log(isFinite("10"));
+console.log(isFinite(Infinity));
+console.log(Math.PI);
+console.log(Math.E);
+console.log(Math.LN2);
