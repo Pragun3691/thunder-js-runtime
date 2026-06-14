@@ -69,6 +69,14 @@ class ForOfStatement(Statement):
 
 
 @dataclass(frozen=True)
+class ForInStatement(Statement):
+    kind: str
+    name: str
+    iterable: Expression
+    body: Statement
+
+
+@dataclass(frozen=True)
 class BreakStatement(Statement):
     pass
 

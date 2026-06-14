@@ -115,6 +115,119 @@ def format_value(value: object) -> str:
     return to_string(value)
 
 
+def inspect_value(value: object) -> str:
+    return _inspect_value(value, set(), is_top_level=True)
+
+
+def _inspect_value(value: object, seen: set[int], is_top_level: bool) -> str:
+    if value is JS_UNDEFINED:
+        return "undefined"
+    if value is JS_NULL:
+        return "null"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if is_number(value):
+        return format_number(float(value))
+    if isinstance(value, str):
+        if is_top_level:
+            return value
+        return "'" + _escape_inspect_string(value) + "'"
+    if isinstance(value, JSArray):
+        return _inspect_array(value, seen)
+    if isinstance(value, JSObject):
+        return _inspect_object(value, seen)
+    if isinstance(value, dict):
+        return _inspect_dict(value, seen)
+    if isinstance(value, JSDate):
+        return to_string(value)
+    if hasattr(value, "call"):
+        text = str(value)
+        if " object at 0x" in text:
+            return "[Function]"
+        return text
+    return to_string(value)
+
+
+def _inspect_array(array: JSArray, seen: set[int]) -> str:
+    array_id = id(array)
+    if array_id in seen:
+        return "[Circular]"
+
+    seen.add(array_id)
+    try:
+        if not array.items:
+            return "[]"
+
+        items = [
+            _inspect_value(item, seen, is_top_level=False)
+            for item in array.items
+        ]
+        return "[ " + ", ".join(items) + " ]"
+    finally:
+        seen.remove(array_id)
+
+
+def _inspect_object(js_object: JSObject, seen: set[int]) -> str:
+    object_id = id(js_object)
+    if object_id in seen:
+        return "[Circular]"
+
+    seen.add(object_id)
+    try:
+        if not js_object.properties:
+            return "{}"
+
+        properties = []
+        for key, value in js_object.properties.items():
+            properties.append(
+                _inspect_key(key)
+                + ": "
+                + _inspect_value(value, seen, is_top_level=False)
+            )
+        return "{ " + ", ".join(properties) + " }"
+    finally:
+        seen.remove(object_id)
+
+
+def _inspect_dict(value: dict[str, object], seen: set[int]) -> str:
+    object_id = id(value)
+    if object_id in seen:
+        return "[Circular]"
+
+    seen.add(object_id)
+    try:
+        if not value:
+            return "{}"
+
+        properties = []
+        for key, property_value in value.items():
+            properties.append(
+                _inspect_key(key)
+                + ": "
+                + _inspect_value(property_value, seen, is_top_level=False)
+            )
+        return "{ " + ", ".join(properties) + " }"
+    finally:
+        seen.remove(object_id)
+
+
+def _inspect_key(key: str) -> str:
+    if key and (key[0].isalpha() or key[0] in ("_", "$")):
+        if all(character.isalnum() or character in ("_", "$") for character in key):
+            return key
+    return "'" + _escape_inspect_string(key) + "'"
+
+
+def _escape_inspect_string(value: str) -> str:
+    return (
+        value.replace("\\", "\\\\")
+        .replace("'", "\\'")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
+
+
 def strict_equal(left: object, right: object) -> bool:
     if left is JS_NULL or right is JS_NULL:
         return left is JS_NULL and right is JS_NULL
@@ -150,9 +263,18 @@ def loose_equal(left: object, right: object) -> bool:
 
 
 def js_add(left: object, right: object) -> object:
-    if isinstance(left, str) or isinstance(right, str):
-        return to_string(left) + to_string(right)
-    return to_number(left) + to_number(right)
+    left_primitive = _to_primitive_for_add(left)
+    right_primitive = _to_primitive_for_add(right)
+
+    if isinstance(left_primitive, str) or isinstance(right_primitive, str):
+        return to_string(left_primitive) + to_string(right_primitive)
+    return to_number(left_primitive) + to_number(right_primitive)
+
+
+def _to_primitive_for_add(value: object) -> object:
+    if isinstance(value, (JSArray, JSObject, JSDate)):
+        return to_string(value)
+    return value
 
 
 def js_divide(left: object, right: object) -> float:

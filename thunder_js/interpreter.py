@@ -17,6 +17,7 @@ from thunder_js.ast_nodes import (
     ContinueStatement,
     DoWhileStatement,
     ExpressionStatement,
+    ForInStatement,
     ForOfStatement,
     ForStatement,
     FunctionDeclaration,
@@ -235,6 +236,9 @@ class Interpreter:
             return
         if isinstance(statement, ForStatement):
             self._execute_for(statement)
+            return
+        if isinstance(statement, ForInStatement):
+            self._execute_for_in(statement)
             return
         if isinstance(statement, ForOfStatement):
             self._execute_for_of(statement)
@@ -518,6 +522,48 @@ class Interpreter:
                     iteration_environment.define(
                         statement.name,
                         value,
+                        mutable=statement.kind == "let",
+                    )
+                except NameError as error:
+                    raise InterpreterError(str(error)) from error
+
+                self.environment = iteration_environment
+                try:
+                    self.execute(statement.body)
+                except ContinueSignal:
+                    continue
+                except BreakSignal:
+                    break
+                finally:
+                    self.environment = loop_environment
+        finally:
+            self.environment = previous
+
+    def _execute_for_in(self, statement: ForInStatement) -> None:
+        iterable = self.evaluate(statement.iterable)
+
+        if isinstance(iterable, JSObject):
+            keys = list(iterable.properties.keys())
+        elif isinstance(iterable, JSArray):
+            keys = [str(index) for index in range(len(iterable.items))]
+        elif isinstance(iterable, str):
+            keys = [str(index) for index in range(len(iterable))]
+        else:
+            raise InterpreterError(
+                "for...in value must be an object, array, or string."
+            )
+
+        loop_environment = Environment(self.environment)
+        previous = self.environment
+        self.environment = loop_environment
+
+        try:
+            for key in keys:
+                iteration_environment = Environment(loop_environment)
+                try:
+                    iteration_environment.define(
+                        statement.name,
+                        key,
                         mutable=statement.kind == "let",
                     )
                 except NameError as error:

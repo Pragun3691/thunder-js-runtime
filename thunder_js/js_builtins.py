@@ -15,7 +15,7 @@ from thunder_js.values import (
     JSObject,
     JS_UNDEFINED,
     format_number,
-    format_value,
+    inspect_value,
     is_nan,
     is_number,
     to_boolean,
@@ -42,7 +42,7 @@ class ConsoleLog(JSCallable):
         self.output = output
 
     def call(self, arguments: list[object]) -> object:
-        self.output(" ".join(format_value(argument) for argument in arguments))
+        self.output(" ".join(inspect_value(argument) for argument in arguments))
         return JS_UNDEFINED
 
 

@@ -15,6 +15,7 @@ from thunder_js.ast_nodes import (
     DoWhileStatement,
     Expression,
     ExpressionStatement,
+    ForInStatement,
     ForOfStatement,
     ForStatement,
     FunctionDeclaration,
@@ -199,7 +200,7 @@ class Parser:
         self._optional_semicolon()
         return DoWhileStatement(body, test)
 
-    def _for_statement(self) -> ForStatement | ForOfStatement:
+    def _for_statement(self) -> ForStatement | ForOfStatement | ForInStatement:
         self._consume(TokenType.LEFT_PAREN, "Expected '(' after for.")
 
         if self._match(TokenType.SEMICOLON):
@@ -211,6 +212,11 @@ class Parser:
                 self._consume(TokenType.RIGHT_PAREN, "Expected ')' after for...of.")
                 body = self._loop_body()
                 return ForOfStatement("let", name.lexeme, iterable, body)
+            if self._match_identifier("in"):
+                iterable = self.parse_expression()
+                self._consume(TokenType.RIGHT_PAREN, "Expected ')' after for...in.")
+                body = self._loop_body()
+                return ForInStatement("let", name.lexeme, iterable, body)
             initializer = self._finish_variable_declaration_without_semicolon(
                 "let", name
             )
@@ -222,6 +228,11 @@ class Parser:
                 self._consume(TokenType.RIGHT_PAREN, "Expected ')' after for...of.")
                 body = self._loop_body()
                 return ForOfStatement("const", name.lexeme, iterable, body)
+            if self._match_identifier("in"):
+                iterable = self.parse_expression()
+                self._consume(TokenType.RIGHT_PAREN, "Expected ')' after for...in.")
+                body = self._loop_body()
+                return ForInStatement("const", name.lexeme, iterable, body)
             initializer = self._finish_variable_declaration_without_semicolon(
                 "const", name
             )

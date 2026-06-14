@@ -48,8 +48,8 @@ The codebase keeps these pieces separated:
   `++` and `--` on variables, properties, and indexes, member access, computed
   access, calls, spread arguments, and `new Date(...)`.
 - Statements: expression statements, `let`, `const`, blocks, `if`/`else`,
-  `switch`/`case`/`default`, `for`, `for...of`, `while`, `do...while`, `break`,
-  `continue`, function declarations, and `return`.
+  `switch`/`case`/`default`, `for`, `for...of`, `for...in`, `while`,
+  `do...while`, `break`, `continue`, function declarations, and `return`.
 - Scoping: lexical environments, parent-scope lookup, variable shadowing,
   function-local scope, closure capture, function-declaration hoisting, and
   const reassignment protection, including per-iteration `let` bindings for
@@ -82,6 +82,8 @@ let updated = { ...base, age: 21 };
   `Math.min`, `Math.pow`, `Math.sqrt`, `Math.trunc`, `Math.random`, `Number`,
   `String`, `Boolean`, `parseInt`, `parseFloat`, `JSON.stringify`, and
   `Date.now`.
+- Output: direct `console.log` uses simple inspect-style formatting for arrays
+  and objects while string coercion paths still use JavaScript-like conversion.
 - Minimal Date support: `new Date()`, `new Date(milliseconds)`, `getTime`,
   `getFullYear`, `getMonth`, `getDate`, `getDay`, `getHours`, `getMinutes`,
   `getSeconds`, and `toISOString`.
@@ -91,9 +93,10 @@ let updated = { ...base, age: 21 };
 This runtime intentionally supports only an educational subset of JavaScript.
 Notable missing or incomplete areas include:
 
-- No complete ECMAScript compatibility.
-- No classes, prototypes, `this`, modules, imports, async functions, generators,
-  promises, regular expressions, destructuring, or full standard library.
+- No full ECMAScript compatibility, including try/catch, throw, classes,
+  prototypes, `this`, modules, imports, async functions, generators, promises,
+  destructuring, bitwise operators, regex literals, or the full standard
+  library.
 - Date support is intentionally minimal and does not attempt full JavaScript
   date parsing or timezone behavior.
 - Object output is basic; full JSON-style formatting is not a goal.
