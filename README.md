@@ -1,9 +1,62 @@
 # Thunder JavaScript Runtime
 
-A small JavaScript interpreter built from scratch in Python for Thunder
-Hackathon 2.
+A small JavaScript interpreter built from scratch in Python for Thunder Hackathon 2.
 
-Supports an educational subset of JavaScript covering the supplied tests and related language features. It is not a complete ECMAScript implementation.
+## Quick Start
+
+### Installation
+
+Use Python 3 and install the test dependency:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+An optional virtual environment keeps dependencies local:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+### Run a JavaScript File
+
+Run a file through the root entry point:
+
+```powershell
+python main.py examples\01_odd_even.js
+```
+
+Or with a virtual environment:
+
+```powershell
+.\.venv\Scripts\python.exe main.py examples\01_odd_even.js
+```
+
+### Run Through Stdin
+
+PowerShell:
+
+```powershell
+Get-Content examples\01_odd_even.js | python main.py
+```
+
+Shells that support input redirection:
+
+```sh
+python main.py < examples/01_odd_even.js
+```
+
+### Run the Tests
+
+Run the full pytest suite:
+
+```powershell
+python -m pytest -q
+```
+
+The suite includes lexer, parser, interpreter, CLI, public-example, and
+adversarial hidden-test-style coverage. The latest verified run completed with 517 tests passing.
 
 ## Project Overview
 
@@ -14,7 +67,9 @@ production JavaScript engine.
 
 Program output goes to stdout. Syntax and runtime errors are reported to stderr.
 
-## Thunder Hackathon 2 Context
+Supports an educational subset of JavaScript covering the supplied tests and related language features. It is not a complete ECMAScript implementation.
+
+### Hackathon Context
 
 This project was built for Thunder Hackathon 2, where the goal is to implement a
 small JavaScript interpreter from scratch. The implementation focuses on the
@@ -37,6 +92,40 @@ The codebase keeps these pieces separated:
 - `js_builtins.py`: defines built-in objects and functions.
 - `interpreter.py`: walks the AST and executes programs.
 - `cli.py` and `main.py`: provide command-line execution.
+
+### Repository Structure
+
+```text
+thunder-js-runtime/
+  main.py
+  README.md
+  PLAN.md
+  AGENTS.md
+  requirements.txt
+  thunder_js/
+    __init__.py
+    ast_nodes.py
+    cli.py
+    environment.py
+    interpreter.py
+    js_builtins.py
+    lexer.py
+    parser.py
+    tokens.py
+    values.py
+  examples/
+    01_odd_even.js
+    02_triangle.js
+    03_palindrome.js
+    04_array_reverse.js
+    05_armstrong.js
+    ...
+  tests/
+    test_lexer.py
+    test_parser.py
+    test_interpreter_*.py
+    test_hidden_adversarial.py
+```
 
 ## Supported Features
 
@@ -101,98 +190,7 @@ let updated = { ...base, age: 21 };
   `getFullYear`, `getMonth`, `getDate`, `getDay`, `getHours`, `getMinutes`,
   `getSeconds`, and `toISOString`.
 
-## Honest Limitations
-
-This runtime intentionally supports only an educational subset of JavaScript.
-Notable missing or incomplete areas include:
-
-- No full ECMAScript compatibility, including try/catch, throw, classes,
-  prototypes, modules, imports, async functions, generators, promises, bitwise
-  operators, regex literals, or the full standard library.
-- `this` support is intentionally limited: only normal functions called as
-  object methods receive dynamic `this`. Detached method calls use `undefined`
-  as `this`; `bind`, `call`, `apply`, constructor-style `this`, and complete
-  lexical arrow-function `this` semantics are not implemented.
-- Destructuring is supported in declarations and function or arrow parameters,
-  but destructuring assignment expressions such as `[a, b] = [b, a]` are not
-  supported.
-- Optional chaining is read/call-only; optional assignment targets such as
-  `object?.property = value` are rejected.
-- `var` implements function/global scoping and simple declaration-name hoisting,
-  but it does not model every ECMAScript global-object or browser Annex B
-  scoping edge case.
-- Date support is intentionally minimal and does not attempt full JavaScript
-  date parsing or timezone behavior.
-- Object output is basic; full JSON-style formatting is not a goal.
-- Array and string methods are implemented only to the level needed by the
-  supported subset.
-- Error messages are designed to be clear, but they are not identical to browser
-  or Node.js errors.
-
-## What Is Not Used
-
-This project does not use any existing JavaScript engine or runtime.
-
-Specifically, it does not use Node.js, QuickJS, V8, js2py, Python `eval()`,
-Python `exec()`, subprocess execution of JavaScript, JavaScript-to-Python
-transpilation, hardcoded recognition of public tests, or runtime network/API/LLM
-calls.
-
-## Installation
-
-Use Python 3 and install the test dependency:
-
-```powershell
-python -m pip install -r requirements.txt
-```
-
-An optional virtual environment keeps dependencies local:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-```
-
-## Running a JavaScript File
-
-Run a file through the root entry point:
-
-```powershell
-python main.py examples\01_odd_even.js
-```
-
-Or with a virtual environment:
-
-```powershell
-.\.venv\Scripts\python.exe main.py examples\01_odd_even.js
-```
-
-## Running Through Stdin
-
-PowerShell:
-
-```powershell
-Get-Content examples\01_odd_even.js | python main.py
-```
-
-Shells that support input redirection:
-
-```sh
-python main.py < examples/01_odd_even.js
-```
-
-## Running Tests
-
-Run the full pytest suite:
-
-```powershell
-python -m pytest -q
-```
-
-The suite includes lexer, parser, interpreter, CLI, public-example, and
-adversarial hidden-test-style coverage. The latest verified run completed with 517 tests passing.
-
-## Public Examples
+## Examples
 
 The first five examples correspond to the core public-test milestones:
 
@@ -229,41 +227,9 @@ Additional examples show later supported features:
 - `examples/26_final_low_risk_features.js`
 - `examples/27_six_correctness_fixes.js`
 
-## Repository Structure
+## Safety, Compliance, and AI Disclosure
 
-```text
-thunder-js-runtime/
-  main.py
-  README.md
-  PLAN.md
-  AGENTS.md
-  requirements.txt
-  thunder_js/
-    __init__.py
-    ast_nodes.py
-    cli.py
-    environment.py
-    interpreter.py
-    js_builtins.py
-    lexer.py
-    parser.py
-    tokens.py
-    values.py
-  examples/
-    01_odd_even.js
-    02_triangle.js
-    03_palindrome.js
-    04_array_reverse.js
-    05_armstrong.js
-    ...
-  tests/
-    test_lexer.py
-    test_parser.py
-    test_interpreter_*.py
-    test_hidden_adversarial.py
-```
-
-## Safety Limits
+### Runtime Safety Limits
 
 The interpreter includes runtime guardrails for programs that do not terminate:
 
@@ -273,9 +239,45 @@ The interpreter includes runtime guardrails for programs that do not terminate:
 When these limits are exceeded, the runtime raises a controlled interpreter
 error instead of allowing an unbounded Python traceback.
 
-## AI Assistance Disclosure
+### What Is Not Used
+
+This project does not use any existing JavaScript engine or runtime.
+
+Specifically, it does not use Node.js, QuickJS, V8, js2py, Python `eval()`,
+Python `exec()`, subprocess execution of JavaScript, JavaScript-to-Python
+transpilation, hardcoded recognition of public tests, or runtime network/API/LLM
+calls.
+
+### AI Assistance Disclosure
 
 AI assistance was used during development for planning, implementation,
 testing, review, and documentation. The project remains a from-scratch Python
 interpreter and does not call an AI model at runtime.
 
+## Limitations
+
+This runtime intentionally supports only an educational subset of JavaScript.
+Notable missing or incomplete areas include:
+
+- No full ECMAScript compatibility, including try/catch, throw, classes,
+  prototypes, modules, imports, async functions, generators, promises, bitwise
+  operators, regex literals, or the full standard library.
+- `this` support is intentionally limited: only normal functions called as
+  object methods receive dynamic `this`. Detached method calls use `undefined`
+  as `this`; `bind`, `call`, `apply`, constructor-style `this`, and complete
+  lexical arrow-function `this` semantics are not implemented.
+- Destructuring is supported in declarations and function or arrow parameters,
+  but destructuring assignment expressions such as `[a, b] = [b, a]` are not
+  supported.
+- Optional chaining is read/call-only; optional assignment targets such as
+  `object?.property = value` are rejected.
+- `var` implements function/global scoping and simple declaration-name hoisting,
+  but it does not model every ECMAScript global-object or browser Annex B
+  scoping edge case.
+- Date support is intentionally minimal and does not attempt full JavaScript
+  date parsing or timezone behavior.
+- Object output is basic; full JSON-style formatting is not a goal.
+- Array and string methods are implemented only to the level needed by the
+  supported subset.
+- Error messages are designed to be clear, but they are not identical to browser
+  or Node.js errors.
