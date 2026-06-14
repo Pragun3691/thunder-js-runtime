@@ -153,7 +153,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-## Running A JavaScript File
+## Running a JavaScript File
 
 Run a file through the root entry point:
 
@@ -190,7 +190,7 @@ python -m pytest -q
 ```
 
 The suite includes lexer, parser, interpreter, CLI, public-example, and
-adversarial hidden-test-style coverage.
+adversarial hidden-test-style coverage. The latest verified run completed with 517 tests passing.
 
 ## Public Examples
 
@@ -224,6 +224,10 @@ Additional examples show later supported features:
 - `examples/21_loop_closure.js`
 - `examples/22_final_audit_fixes.js`
 - `examples/23_var_destructuring.js`
+- `examples/24_destructuring_edges.js`
+- `examples/25_this_optional_nullish.js`
+- `examples/26_final_low_risk_features.js`
+- `examples/27_six_correctness_fixes.js`
 
 ## Repository Structure
 
@@ -274,3 +278,4 @@ error instead of allowing an unbounded Python traceback.
 AI assistance was used during development for planning, implementation,
 testing, review, and documentation. The project remains a from-scratch Python
 interpreter and does not call an AI model at runtime.
+
