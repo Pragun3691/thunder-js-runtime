@@ -1,0 +1,2 @@
+const score = 10;
+score = 20;
