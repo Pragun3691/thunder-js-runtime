@@ -7,11 +7,14 @@ from thunder_js.ast_nodes import (
     CallExpression,
     ComputedMemberExpression,
     ConditionalExpression,
+    FunctionExpression,
     GroupingExpression,
     Identifier,
     LogicalExpression,
     NullLiteral,
     NumericLiteral,
+    ObjectLiteral,
+    ObjectProperty,
     PostfixUpdateExpression,
     PrefixUpdateExpression,
     PropertyAccessExpression,
@@ -34,6 +37,36 @@ def test_literal_expression_nodes():
     assert parse_expression("false") == BooleanLiteral(False)
     assert parse_expression("null") == NullLiteral()
     assert parse_expression("undefined") == UndefinedLiteral()
+
+
+@pytest.mark.parametrize(
+    ("source", "value"),
+    [
+        ("0xFF", 255),
+        ("0b1010", 10),
+        ("0o17", 15),
+        ("1e3", 1000.0),
+        ("1E3", 1000.0),
+        ("1.5e2", 150.0),
+        ("2e-3", 0.002),
+        ("2.5E+4", 25000.0),
+    ],
+)
+def test_additional_number_literals_parse_to_numeric_literals(source, value):
+    assert parse_expression(source) == NumericLiteral(value)
+
+
+def test_shorthand_object_method_parses_as_function_property():
+    expression = parse_expression("{ greet(name = \"World\") { return name; } }")
+
+    assert isinstance(expression, ObjectLiteral)
+    assert len(expression.properties) == 1
+    property_node = expression.properties[0]
+    assert isinstance(property_node, ObjectProperty)
+    assert property_node.key == "greet"
+    assert isinstance(property_node.value, FunctionExpression)
+    assert property_node.value.name == "greet"
+    assert len(property_node.value.parameters) == 1
 
 
 def test_multiplication_has_higher_precedence_than_addition():

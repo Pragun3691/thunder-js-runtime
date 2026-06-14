@@ -840,15 +840,20 @@ class Parser:
                     properties.append(SpreadElement(self.parse_expression()))
                 elif self._match(TokenType.IDENTIFIER):
                     key = self._previous().lexeme
-                    if self._match(TokenType.COLON):
+                    if self._check(TokenType.LEFT_PAREN):
+                        value = self._object_method_value(key)
+                    elif self._match(TokenType.COLON):
                         value = self.parse_expression()
                     else:
                         value = Identifier(key)
                     properties.append(ObjectProperty(key, value))
                 else:
                     key = self._object_property_key()
-                    self._consume(TokenType.COLON, "Expected ':' after object key.")
-                    value = self.parse_expression()
+                    if self._check(TokenType.LEFT_PAREN):
+                        value = self._object_method_value(key)
+                    else:
+                        self._consume(TokenType.COLON, "Expected ':' after object key.")
+                        value = self.parse_expression()
                     properties.append(ObjectProperty(key, value))
 
                 if not self._match(TokenType.COMMA):
@@ -858,6 +863,19 @@ class Parser:
 
         self._consume(TokenType.RIGHT_BRACE, "Expected '}' after object literal.")
         return ObjectLiteral(properties)
+
+    def _object_method_value(self, name: str) -> FunctionExpression:
+        parameters, parameter_defaults, rest_parameter = self._function_parameters(
+            "object method"
+        )
+        body = self._function_body()
+        return FunctionExpression(
+            name,
+            parameters,
+            body,
+            rest_parameter,
+            parameter_defaults,
+        )
 
     def _object_property_key(self) -> str:
         if self._match(TokenType.IDENTIFIER):

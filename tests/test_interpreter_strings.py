@@ -1,5 +1,7 @@
 from io import StringIO
 
+import pytest
+
 from thunder_js.cli import main
 from thunder_js.interpreter import run_source
 
@@ -152,6 +154,68 @@ console.log("Thunder".indexOf("missing"));
         "3",
         "-1",
     ]
+
+
+def test_selected_string_methods_and_boundaries():
+    source = """
+console.log("Thunder".charAt(0));
+console.log("Thunder".charAt(99) === "");
+console.log("".charAt(0) === "");
+console.log("Thunder".charCodeAt(0));
+console.log("Thunder".charCodeAt(99));
+console.log("ha".repeat(3));
+console.log("ha".repeat());
+console.log("5".padStart(3, "0"));
+console.log("5".padEnd(3));
+console.log("abc".padStart(2, "0"));
+console.log("abc".padEnd(5, ""));
+console.log("[" + "  hi  ".trimStart() + "]");
+console.log("[" + "  hi  ".trimEnd() + "]");
+console.log("abc".at(0));
+console.log("abc".at(-1));
+console.log(String("abc".at(99)));
+console.log(String("".at(0)));
+console.log("a".concat("b", 1, true, null, undefined));
+"""
+
+    assert run_and_collect(source) == [
+        "T",
+        "true",
+        "true",
+        "84",
+        "NaN",
+        "hahaha",
+        "",
+        "005",
+        "5  ",
+        "abc",
+        "abc",
+        "[hi  ]",
+        "[  hi]",
+        "a",
+        "c",
+        "undefined",
+        "undefined",
+        "ab1truenullundefined",
+    ]
+
+
+@pytest.mark.parametrize("count", ["-1", '"bad"', "Infinity"])
+def test_string_repeat_invalid_count_is_clear_cli_error(count):
+    stdout = StringIO()
+    stderr = StringIO()
+
+    exit_code = main(
+        [],
+        stdin=StringIO(f'console.log("x".repeat({count}));'),
+        stdout=stdout,
+        stderr=stderr,
+    )
+
+    assert exit_code == 1
+    assert stdout.getvalue() == ""
+    assert "String.repeat count must be a finite non-negative number" in stderr.getvalue()
+    assert "Traceback" not in stderr.getvalue()
 
 
 def test_missing_string_method_error_goes_to_stderr_only():

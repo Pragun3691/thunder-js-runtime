@@ -124,6 +124,108 @@ console.log(user.name + " is " + user.age);
     assert run_and_collect(source) == ["Pragun is 20"]
 
 
+def test_shorthand_object_methods_with_this_and_parameters():
+    source = """
+let user = {
+    name: "Pragun",
+    greet() {
+        return "Hello " + this.name;
+    },
+    add(a, b) {
+        return a + b;
+    }
+};
+
+console.log(user.greet());
+console.log(user.add(2, 3));
+"""
+
+    assert run_and_collect(source) == ["Hello Pragun", "5"]
+
+
+def test_nested_shorthand_object_method_uses_immediate_receiver():
+    source = """
+let outer = {
+    value: "outer",
+    inner: {
+        value: "inner",
+        getValue() {
+            return this.value;
+        }
+    }
+};
+
+console.log(outer.inner.getValue());
+"""
+
+    assert run_and_collect(source) == ["inner"]
+
+
+def test_shorthand_object_method_can_update_object_state():
+    source = """
+let counter = {
+    value: 0,
+    increment() {
+        this.value++;
+        return this.value;
+    }
+};
+
+console.log(counter.increment());
+console.log(counter.increment());
+console.log(counter.value);
+"""
+
+    assert run_and_collect(source) == ["1", "2", "2"]
+
+
+def test_shorthand_object_method_default_and_destructured_parameters():
+    source = """
+let tools = {
+    greet(name = "World") {
+        return "Hello " + name;
+    },
+    describe({ name, score = 10 }) {
+        return name + ":" + score;
+    }
+};
+
+console.log(tools.greet());
+console.log(tools.greet("Pragun"));
+console.log(tools.describe({ name: "JS" }));
+"""
+
+    assert run_and_collect(source) == ["Hello World", "Hello Pragun", "JS:10"]
+
+
+def test_shorthand_methods_do_not_break_normal_object_properties():
+    source = """
+let user = {
+    name: "Pragun",
+    age: 20,
+    label() {
+        return this.name + ":" + this.age;
+    }
+};
+
+console.log(user.name);
+console.log(user.age);
+console.log(user.label());
+"""
+
+    assert run_and_collect(source) == ["Pragun", "20", "Pragun:20"]
+
+
+def test_bad_shorthand_method_syntax_is_clear_cli_error():
+    exit_code, stdout, stderr = run_cli("let user = { greet() };")
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert "Expected '{' before function body" in stderr
+    assert "line 1, column" in stderr
+    assert "Traceback" not in stderr
+
+
 def test_basic_object_spread_copies_properties():
     source = """
 let a = { name: "Pragun", age: 20 };

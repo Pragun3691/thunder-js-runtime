@@ -27,6 +27,15 @@ KEYWORDS = {
     "continue": TokenType.CONTINUE,
 }
 
+NUMBER_BASES = {
+    "x": (16, "0123456789abcdefABCDEF"),
+    "X": (16, "0123456789abcdefABCDEF"),
+    "b": (2, "01"),
+    "B": (2, "01"),
+    "o": (8, "01234567"),
+    "O": (8, "01234567"),
+}
+
 
 class LexerError(Exception):
     """Raised when source text cannot be turned into tokens."""
@@ -198,6 +207,35 @@ class Lexer:
         self._add_token(token_type)
 
     def _number(self, started_with_dot: bool) -> None:
+        if (
+            not started_with_dot
+            and self.source[self.start] == "0"
+            and self._peek() in NUMBER_BASES
+        ):
+            self._based_number()
+            return
+
+        self._decimal_number(started_with_dot)
+
+    def _based_number(self) -> None:
+        prefix = self._advance()
+        base, valid_digits = NUMBER_BASES[prefix]
+        digit_start = self.current
+
+        while self._peek() in valid_digits:
+            self._advance()
+
+        if self.current == digit_start:
+            self._raise_malformed_number()
+
+        if self._is_identifier_part(self._peek()):
+            self._consume_malformed_number_tail()
+            self._raise_malformed_number()
+
+        text = self.source[self.start : self.current]
+        self._add_token(TokenType.NUMBER, int(text[2:], base))
+
+    def _decimal_number(self, started_with_dot: bool) -> None:
         if not started_with_dot:
             while self._peek().isdigit():
                 self._advance()
@@ -208,9 +246,34 @@ class Lexer:
         while self._peek().isdigit():
             self._advance()
 
+        if self._peek() in ("e", "E"):
+            self._advance()
+            if self._peek() in ("+", "-"):
+                self._advance()
+            if not self._peek().isdigit():
+                self._consume_malformed_number_tail()
+                self._raise_malformed_number()
+            while self._peek().isdigit():
+                self._advance()
+
+        if self._is_identifier_start(self._peek()):
+            self._consume_malformed_number_tail()
+            self._raise_malformed_number()
+
         text = self.source[self.start : self.current]
-        literal = float(text) if "." in text else int(text)
+        literal = float(text) if "." in text or "e" in text or "E" in text else int(text)
         self._add_token(TokenType.NUMBER, literal)
+
+    def _consume_malformed_number_tail(self) -> None:
+        while self._is_identifier_part(self._peek()):
+            self._advance()
+
+    def _raise_malformed_number(self) -> None:
+        text = self.source[self.start : self.current]
+        raise LexerError(
+            f"Malformed number literal {text!r} at "
+            f"line {self.start_line}, column {self.start_column}."
+        )
 
     def _string(self, quote: str) -> None:
         value = ""

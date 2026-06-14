@@ -276,3 +276,88 @@ console.log(JSON.stringify(updated));
 """
 
     assert run_and_collect(source) == ['{"name":"Pragun","age":21}']
+
+
+def test_json_parse_primitives():
+    source = """
+console.log(JSON.parse("null"));
+console.log(JSON.parse("true"));
+console.log(JSON.parse("12.5"));
+console.log(JSON.parse('"Pragun"'));
+"""
+
+    assert run_and_collect(source) == ["null", "true", "12.5", "Pragun"]
+
+
+def test_json_parse_arrays_objects_and_nested_values():
+    source = """
+let array = JSON.parse('[1, true, null, "x"]');
+let object = JSON.parse('{"name":"Pragun","age":20}');
+let nested = JSON.parse('{"items":[1,{"ok":true}],"name":"nested"}');
+
+console.log(JSON.stringify(array));
+console.log(object.name + ":" + object.age);
+console.log(nested.items[1].ok);
+console.log(nested.name);
+"""
+
+    assert run_and_collect(source) == [
+        '[1,true,null,"x"]',
+        "Pragun:20",
+        "true",
+        "nested",
+    ]
+
+
+def test_json_parse_escaped_characters_and_whitespace():
+    source = r"""
+let text = JSON.parse('"line\\nquote: \\\"ok\\\""');
+let object = JSON.parse('  { "ok": true, "value": 3 }  ');
+
+console.log(text);
+console.log(object.ok);
+console.log(object.value);
+"""
+
+    assert run_and_collect(source) == ["line\nquote: \"ok\"", "true", "3"]
+
+
+def test_json_parse_round_trip_with_json_stringify():
+    source = """
+let value = { name: "Pragun", items: [1, true, null] };
+let copy = JSON.parse(JSON.stringify(value));
+
+console.log(copy.name);
+console.log(copy.items[0]);
+console.log(copy.items[1]);
+console.log(copy.items[2]);
+"""
+
+    assert run_and_collect(source) == ["Pragun", "1", "true", "null"]
+
+
+def test_json_parse_invalid_json_is_clear_cli_error():
+    exit_code, stdout, stderr = run_cli("JSON.parse('{bad json}');")
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert "Invalid JSON." in stderr
+    assert "Traceback" not in stderr
+
+
+def test_json_parse_non_string_argument_is_clear_cli_error():
+    exit_code, stdout, stderr = run_cli("JSON.parse(123);")
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert "JSON.parse argument must be a string." in stderr
+    assert "Traceback" not in stderr
+
+
+def test_json_parse_requires_exactly_one_argument():
+    exit_code, stdout, stderr = run_cli("JSON.parse();")
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert "JSON.parse expects exactly one argument." in stderr
+    assert "Traceback" not in stderr

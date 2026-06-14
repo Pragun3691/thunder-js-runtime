@@ -132,6 +132,63 @@ def _math_sqrt(arguments: list[object]) -> float:
     return math.sqrt(value)
 
 
+def _math_log(arguments: list[object]) -> float:
+    return _math_log_with_base(arguments, "e")
+
+
+def _math_log2(arguments: list[object]) -> float:
+    return _math_log_with_base(arguments, 2)
+
+
+def _math_log10(arguments: list[object]) -> float:
+    return _math_log_with_base(arguments, 10)
+
+
+def _math_log_with_base(arguments: list[object], base: object) -> float:
+    value = _first_number(arguments)
+    if is_nan(value):
+        return math.nan
+    if value < 0:
+        return math.nan
+    if value == 0:
+        return -math.inf
+    if math.isinf(value):
+        return math.inf
+    if base == "e":
+        return math.log(value)
+    if base == 2:
+        return math.log2(value)
+    return math.log10(value)
+
+
+def _math_sign(arguments: list[object]) -> object:
+    value = _first_number(arguments)
+    if is_nan(value):
+        return math.nan
+    if value == 0:
+        return 0
+    return 1 if value > 0 else -1
+
+
+def _math_hypot(arguments: list[object]) -> float:
+    if not arguments:
+        return 0
+
+    numbers = [to_number(argument) for argument in arguments]
+    if any(is_nan(number) for number in numbers):
+        return math.nan
+    return math.hypot(*numbers)
+
+
+def _math_cbrt(arguments: list[object]) -> float:
+    value = _first_number(arguments)
+    if is_nan(value) or math.isinf(value) or value == 0:
+        return value
+
+    magnitude = abs(value) ** (1 / 3)
+    return magnitude if value > 0 else -magnitude
+
+
 def _math_trunc(arguments: list[object]) -> object:
     value = _first_number(arguments)
     if _is_nan_or_infinite(value):
@@ -257,6 +314,44 @@ def _json_stringify(arguments: list[object]) -> object:
     return serialized
 
 
+def _json_parse(arguments: list[object]) -> object:
+    if len(arguments) != 1:
+        raise ValueError("JSON.parse expects exactly one argument.")
+
+    text = arguments[0]
+    if not isinstance(text, str):
+        raise ValueError("JSON.parse argument must be a string.")
+
+    try:
+        value = json.loads(text, parse_constant=_reject_json_constant)
+    except json.JSONDecodeError as error:
+        raise ValueError("Invalid JSON.") from error
+
+    return _json_to_js(value)
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError("Invalid JSON.")
+
+
+def _json_to_js(value: object) -> object:
+    if value is None:
+        return JS_NULL
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        return JSArray([_json_to_js(item) for item in value])
+    if isinstance(value, dict):
+        return JSObject(
+            {str(key): _json_to_js(property_value) for key, property_value in value.items()}
+        )
+    return JS_UNDEFINED
+
+
 def _json_serialize(
     value: object,
     seen: set[int],
@@ -367,6 +462,12 @@ def _math_object() -> dict[str, object]:
         "min": BuiltInFunction(_math_min),
         "pow": BuiltInFunction(_math_pow),
         "sqrt": BuiltInFunction(_math_sqrt),
+        "log": BuiltInFunction(_math_log),
+        "log2": BuiltInFunction(_math_log2),
+        "log10": BuiltInFunction(_math_log10),
+        "sign": BuiltInFunction(_math_sign),
+        "hypot": BuiltInFunction(_math_hypot),
+        "cbrt": BuiltInFunction(_math_cbrt),
         "trunc": BuiltInFunction(_math_trunc),
         "random": BuiltInFunction(_math_random),
     }
@@ -389,6 +490,7 @@ def _object_object() -> dict[str, object]:
 def _json_object() -> dict[str, object]:
     return {
         "stringify": BuiltInFunction(_json_stringify),
+        "parse": BuiltInFunction(_json_parse),
     }
 
 

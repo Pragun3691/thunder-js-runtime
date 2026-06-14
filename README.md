@@ -40,7 +40,8 @@ The codebase keeps these pieces separated:
 
 ## Supported Features
 
-- Literals and globals: numbers, strings, template literals, booleans, `null`,
+- Literals and globals: numbers including decimal, hexadecimal, binary, octal,
+  and scientific notation forms, strings, template literals, booleans, `null`,
   `undefined`, `NaN`, `Infinity`, arrays, objects, and minimal `Date` values.
 - Expressions: grouping, unary operators including `typeof`, arithmetic,
   exponentiation, comparisons, equality, logical operators, ternary expressions,
@@ -60,25 +61,26 @@ The codebase keeps these pieces separated:
   function-declaration hoisting, simple `var` name hoisting to `undefined`, and
   const reassignment protection, including per-iteration `let` bindings for
   closures in classic `for` loops.
-- Functions: declarations, expressions, arrow functions, parameters, rest
-  parameters, default parameters, destructured parameters, recursion, closures,
-  callbacks, returned functions, missing arguments as `undefined`, and limited
-  method-call `this` binding for normal functions called through object member
-  access.
+- Functions: declarations, expressions, arrow functions, shorthand object
+  methods, parameters, rest parameters, default parameters, destructured
+  parameters, recursion, closures, callbacks, returned functions, missing
+  arguments as `undefined`, and limited method-call `this` binding for normal
+  functions called through object member access.
 - Arrays: literals, indexing, length, indexed assignment, array spread,
   `push`, `pop`, `shift`, `unshift`, `slice`, `splice`, `concat`, `includes`,
   `indexOf`, `reverse`, `join`, default `sort`, `map`, `filter`, `reduce`,
   `find`, `some`, `every`, `forEach`, and `Array.isArray`.
 - Strings: length, `split`, `replace`, `replaceAll`, `substring`, `slice`,
-  `trim`, `toUpperCase`, `toLowerCase`, `includes`, `startsWith`, `endsWith`,
-  and `indexOf`.
+  `charAt`, `charCodeAt`, `repeat`, `padStart`, `padEnd`, `trim`, `trimStart`,
+  `trimEnd`, `toUpperCase`, `toLowerCase`, `includes`, `startsWith`, `endsWith`,
+  `indexOf`, `at`, and `concat`.
 - Objects: object literals, empty objects, identifier keys, string keys,
   numeric keys converted to strings, nested objects, property reads, computed
-  reads, shorthand properties, property assignment, adding properties, shallow
-  object spread, `Object.keys`, `Object.values`, `Object.entries`, and missing
-  properties as `undefined`. Normal functions stored on objects receive the
-  immediate receiver as `this` when called as `object.method()` or
-  `object["method"]()`.
+  reads, shorthand properties, shorthand methods, property assignment, adding
+  properties, shallow object spread, `Object.keys`, `Object.values`,
+  `Object.entries`, and missing properties as `undefined`. Normal functions
+  stored on objects receive the immediate receiver as `this` when called as
+  `object.method()` or `object["method"]()`.
 
 Object spread copies properties into a new object and is shallow:
 
@@ -89,9 +91,10 @@ let updated = { ...base, age: 21 };
 
 - Built-ins: `console.log`, `isNaN`, `isFinite`, `Math.PI`, `Math.E`,
   `Math.LN2`, `Math.abs`, `Math.ceil`, `Math.floor`, `Math.round`, `Math.max`,
-  `Math.min`, `Math.pow`, `Math.sqrt`, `Math.trunc`, `Math.random`, `Number`,
-  `String`, `Boolean`, `parseInt`, `parseFloat`, `JSON.stringify`, and
-  `Date.now`.
+  `Math.min`, `Math.pow`, `Math.sqrt`, `Math.log`, `Math.log2`, `Math.log10`,
+  `Math.sign`, `Math.hypot`, `Math.cbrt`, `Math.trunc`, `Math.random`,
+  `Number`, `String`, `Boolean`, `parseInt`, `parseFloat`, `JSON.stringify`,
+  `JSON.parse`, and `Date.now`.
 - Output: direct `console.log` uses simple inspect-style formatting for arrays
   and objects while string coercion paths still use JavaScript-like conversion.
 - Minimal Date support: `new Date()`, `new Date(milliseconds)`, `getTime`,

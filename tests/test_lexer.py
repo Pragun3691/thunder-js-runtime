@@ -34,6 +34,48 @@ def test_numbers_include_integers_decimals_and_leading_dot_decimals():
     assert [token.literal for token in tokens] == [5, 5.25, 0.25, 5.0]
 
 
+def test_additional_number_literal_formats():
+    tokens = tokens_without_eof(
+        "0xFF 0Xff 0b1010 0B11 0o17 0O10 1e3 1E3 1.5e2 2e-3 2.5E+4"
+    )
+
+    assert [token.type for token in tokens] == [TokenType.NUMBER] * 11
+    assert [token.lexeme for token in tokens] == [
+        "0xFF",
+        "0Xff",
+        "0b1010",
+        "0B11",
+        "0o17",
+        "0O10",
+        "1e3",
+        "1E3",
+        "1.5e2",
+        "2e-3",
+        "2.5E+4",
+    ]
+    assert [token.literal for token in tokens] == [
+        255,
+        255,
+        10,
+        3,
+        15,
+        8,
+        1000.0,
+        1000.0,
+        150.0,
+        0.002,
+        25000.0,
+    ]
+
+
+@pytest.mark.parametrize("source", ["0x", "0b102", "0o89", "1e", "1e+"])
+def test_malformed_number_literals_raise_clear_error(source):
+    with pytest.raises(
+        LexerError, match=r"Malformed number literal .*line 1, column 1"
+    ):
+        Lexer(source).tokenize()
+
+
 def test_single_and_double_quoted_strings_keep_literal_values():
     tokens = tokens_without_eof("'hello' \"line\\nnext\" 'it\\'s fine'")
 

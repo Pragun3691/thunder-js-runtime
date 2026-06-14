@@ -1,5 +1,7 @@
 from io import StringIO
 
+import pytest
+
 from thunder_js.cli import main
 from thunder_js.interpreter import run_source
 
@@ -15,6 +17,46 @@ def run_cli(source):
     stderr = StringIO()
     exit_code = main([], stdin=StringIO(source), stdout=stdout, stderr=stderr)
     return exit_code, stdout.getvalue(), stderr.getvalue()
+
+
+def test_additional_number_literal_formats_evaluate_correctly():
+    source = """
+console.log(0xFF);
+console.log(0Xff);
+console.log(0b1010);
+console.log(0B11);
+console.log(0o17);
+console.log(0O10);
+console.log(1e3);
+console.log(1E3);
+console.log(1.5e2);
+console.log(2e-3);
+console.log(2.5E+4);
+"""
+
+    assert run_and_collect(source) == [
+        "255",
+        "255",
+        "10",
+        "3",
+        "15",
+        "8",
+        "1000",
+        "1000",
+        "150",
+        "0.002",
+        "25000",
+    ]
+
+
+@pytest.mark.parametrize("literal", ["0x", "0b102", "0o89", "1e", "1e+"])
+def test_malformed_number_literal_cli_errors_do_not_leak_tracebacks(literal):
+    exit_code, stdout, stderr = run_cli(f"console.log({literal});")
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert "Malformed number literal" in stderr
+    assert "Traceback" not in stderr
 
 
 def test_math_abs_with_positive_negative_and_decimal_values():
@@ -73,6 +115,52 @@ console.log(Math.sqrt(-1));
 """
 
     assert run_and_collect(source) == ["8", "2", "NaN", "3", "1.5", "NaN"]
+
+
+def test_selected_math_log_sign_hypot_and_cbrt_methods():
+    source = """
+console.log(Math.log(Math.E));
+console.log(Math.log(-1));
+console.log(Math.log(0));
+console.log(Math.log2(8));
+console.log(Math.log2(-1));
+console.log(Math.log10(1000));
+console.log(Math.log10(0));
+console.log(Math.sign(9));
+console.log(Math.sign(-9));
+console.log(Math.sign(0));
+console.log(Math.sign(NaN));
+console.log(Math.hypot(3, 4));
+console.log(Math.hypot());
+console.log(Math.hypot("6", "8"));
+console.log(Math.hypot(1, "bad"));
+console.log(Math.cbrt(27));
+console.log(Math.cbrt(-8));
+console.log(Math.cbrt(NaN));
+console.log(Math.cbrt(Infinity));
+"""
+
+    assert run_and_collect(source) == [
+        "1",
+        "NaN",
+        "-Infinity",
+        "3",
+        "NaN",
+        "3",
+        "-Infinity",
+        "1",
+        "-1",
+        "0",
+        "NaN",
+        "5",
+        "0",
+        "10",
+        "NaN",
+        "3",
+        "-2",
+        "NaN",
+        "Infinity",
+    ]
 
 
 def test_math_helpers_coerce_strings_booleans_null_and_undefined():

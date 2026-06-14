@@ -1196,13 +1196,22 @@ class Interpreter:
             ),
             "substring": lambda args: self._string_substring(text, args),
             "slice": lambda args: self._string_slice(text, args),
+            "charAt": lambda args: self._string_char_at(text, args),
+            "charCodeAt": lambda args: self._string_char_code_at(text, args),
+            "repeat": lambda args: self._string_repeat(text, args),
+            "padStart": lambda args: self._string_pad(text, args, at_start=True),
+            "padEnd": lambda args: self._string_pad(text, args, at_start=False),
             "trim": lambda args: text.strip(),
+            "trimStart": lambda args: text.lstrip(),
+            "trimEnd": lambda args: text.rstrip(),
             "toUpperCase": lambda args: text.upper(),
             "toLowerCase": lambda args: text.lower(),
             "includes": lambda args: self._string_includes(text, args),
             "startsWith": lambda args: self._string_starts_with(text, args),
             "endsWith": lambda args: self._string_ends_with(text, args),
             "indexOf": lambda args: self._string_index_of(text, args),
+            "at": lambda args: self._string_at(text, args),
+            "concat": lambda args: self._string_concat(text, args),
         }
 
         if property_name in methods:
@@ -1486,6 +1495,61 @@ class Interpreter:
         position = self._substring_index(arguments[1]) if len(arguments) > 1 else 0
         return text.find(search, position)
 
+    def _string_char_at(self, text: str, arguments: list[object]) -> str:
+        index = self._string_integer_index(arguments[0] if arguments else 0)
+        if not isinstance(index, int) or index < 0 or index >= len(text):
+            return ""
+        return text[index]
+
+    def _string_char_code_at(self, text: str, arguments: list[object]) -> object:
+        index = self._string_integer_index(arguments[0] if arguments else 0)
+        if not isinstance(index, int) or index < 0 or index >= len(text):
+            return math.nan
+        return ord(text[index])
+
+    def _string_repeat(self, text: str, arguments: list[object]) -> str:
+        if not arguments or arguments[0] is JS_UNDEFINED:
+            return ""
+
+        count = to_number(arguments[0])
+        if is_nan(count) or math.isinf(count) or count < 0:
+            raise ValueError("String.repeat count must be a finite non-negative number.")
+
+        return text * int(count)
+
+    def _string_pad(self, text: str, arguments: list[object], at_start: bool) -> str:
+        target_length = self._string_length_argument(
+            arguments[0] if arguments else JS_UNDEFINED,
+            "String.padStart target length" if at_start else "String.padEnd target length",
+        )
+        if target_length <= len(text):
+            return text
+
+        pad_text = (
+            " "
+            if len(arguments) < 2 or arguments[1] is JS_UNDEFINED
+            else to_string(arguments[1])
+        )
+        if pad_text == "":
+            return text
+
+        needed = target_length - len(text)
+        repeated = (pad_text * ((needed // len(pad_text)) + 1))[:needed]
+        return repeated + text if at_start else text + repeated
+
+    def _string_at(self, text: str, arguments: list[object]) -> object:
+        index = self._string_integer_index(arguments[0] if arguments else 0)
+        if not isinstance(index, int):
+            return JS_UNDEFINED
+        if index < 0:
+            index = len(text) + index
+        if index < 0 or index >= len(text):
+            return JS_UNDEFINED
+        return text[index]
+
+    def _string_concat(self, text: str, arguments: list[object]) -> str:
+        return text + "".join(to_string(argument) for argument in arguments)
+
     def _array_reverse(self, array: JSArray) -> JSArray:
         array.items.reverse()
         return array
@@ -1683,6 +1747,22 @@ class Interpreter:
             return 0
         if math.isinf(number):
             return 0 if number < 0 else 2**31
+        return int(number)
+
+    def _string_integer_index(self, value: object) -> int | float:
+        number = to_number(value)
+        if is_nan(number):
+            return 0
+        if math.isinf(number):
+            return number
+        return int(number)
+
+    def _string_length_argument(self, value: object, name: str) -> int:
+        number = to_number(value)
+        if is_nan(number) or number <= 0:
+            return 0
+        if math.isinf(number):
+            raise ValueError(f"{name} must be finite.")
         return int(number)
 
     def _slice_index(self, value: object, length: int) -> int:
