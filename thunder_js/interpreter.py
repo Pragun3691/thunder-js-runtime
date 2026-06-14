@@ -5,9 +5,11 @@ from collections.abc import Callable
 
 from thunder_js.ast_nodes import (
     AssignmentExpression,
+    ArrayBindingPattern,
     ArrayLiteral,
     ArrowFunctionExpression,
     BinaryExpression,
+    BindingIdentifier,
     BlockStatement,
     BreakStatement,
     BooleanLiteral,
@@ -29,6 +31,7 @@ from thunder_js.ast_nodes import (
     NewExpression,
     NullLiteral,
     NumericLiteral,
+    ObjectBindingPattern,
     ObjectLiteral,
     PostfixUpdateExpression,
     PrefixUpdateExpression,
@@ -144,7 +147,7 @@ class JSFunction(JSCallable):
             self.interpreter.call_depth -= 1
             raise InterpreterError("Maximum call stack size exceeded.")
 
-        function_environment = Environment(self.closure)
+        function_environment = Environment(self.closure, is_var_scope=True)
 
         try:
             previous = self.interpreter.environment
@@ -159,7 +162,12 @@ class JSFunction(JSCallable):
                             value = JS_UNDEFINED
                         else:
                             value = self.interpreter.evaluate(default)
-                    function_environment.define(parameter, value)
+                    self.interpreter._bind_pattern(
+                        parameter,
+                        value,
+                        kind="let",
+                        assign_existing_var=True,
+                    )
 
                 if self.rest_parameter is not None:
                     rest_items = list(arguments[len(self.parameters) :])
@@ -351,6 +359,7 @@ class Interpreter:
 
     def _execute_statements(self, statements: list[object]) -> None:
         self._hoist_function_declarations(statements)
+        self._hoist_var_declarations(statements)
 
         for child in statements:
             if isinstance(child, FunctionDeclaration):
@@ -362,20 +371,236 @@ class Interpreter:
             if isinstance(child, FunctionDeclaration):
                 self._define_function(child)
 
+    def _hoist_var_declarations(self, statements: list[object]) -> None:
+        for name in self._collect_var_names(statements):
+            try:
+                self.environment.define_var(
+                    name,
+                    JS_UNDEFINED,
+                    assign_existing=False,
+                )
+            except TypeError as error:
+                raise InterpreterError(str(error)) from error
+
     def _execute_variable_declaration(self, statement: VariableDeclaration) -> None:
-        value = JS_UNDEFINED
-
-        if statement.initializer is not None:
-            value = self.evaluate(statement.initializer)
-
-        try:
-            self.environment.define(
-                statement.name,
-                value,
-                mutable=statement.kind == "let",
+        for declarator in statement.declarations:
+            has_initializer = declarator.initializer is not None
+            value = (
+                self.evaluate(declarator.initializer)
+                if has_initializer
+                else JS_UNDEFINED
             )
-        except NameError as error:
+            self._bind_pattern(
+                declarator.pattern,
+                value,
+                statement.kind,
+                assign_existing_var=has_initializer,
+            )
+
+    def _collect_var_names(self, statements: list[object]) -> list[str]:
+        names = []
+        for statement in statements:
+            names.extend(self._collect_var_names_from_statement(statement))
+        return names
+
+    def _collect_var_names_from_statement(self, statement: object) -> list[str]:
+        if isinstance(statement, VariableDeclaration):
+            if statement.kind != "var":
+                return []
+
+            names = []
+            for declarator in statement.declarations:
+                names.extend(self._pattern_names(declarator.pattern))
+            return names
+
+        if isinstance(statement, FunctionDeclaration):
+            return []
+
+        if isinstance(statement, BlockStatement):
+            return self._collect_var_names(statement.body)
+
+        if isinstance(statement, IfStatement):
+            names = self._collect_var_names_from_statement(statement.consequent)
+            if statement.alternate is not None:
+                names.extend(self._collect_var_names_from_statement(statement.alternate))
+            return names
+
+        if isinstance(statement, (WhileStatement, DoWhileStatement)):
+            return self._collect_var_names_from_statement(statement.body)
+
+        if isinstance(statement, ForStatement):
+            names = []
+            if isinstance(statement.initializer, VariableDeclaration):
+                names.extend(self._collect_var_names_from_statement(statement.initializer))
+            names.extend(self._collect_var_names_from_statement(statement.body))
+            return names
+
+        if isinstance(statement, (ForOfStatement, ForInStatement)):
+            names = []
+            if statement.kind == "var":
+                names.extend(self._pattern_names(statement.target))
+            names.extend(self._collect_var_names_from_statement(statement.body))
+            return names
+
+        if isinstance(statement, SwitchStatement):
+            names = []
+            for case in statement.cases:
+                names.extend(self._collect_var_names(case.consequent))
+            return names
+
+        return []
+
+    def _pattern_names(self, pattern: object) -> list[str]:
+        if isinstance(pattern, BindingIdentifier):
+            return [pattern.name]
+
+        if isinstance(pattern, ArrayBindingPattern):
+            names = []
+            for element in pattern.elements:
+                if element is not None:
+                    names.extend(self._pattern_names(element.pattern))
+            if pattern.rest is not None:
+                names.extend(self._pattern_names(pattern.rest))
+            return names
+
+        if isinstance(pattern, ObjectBindingPattern):
+            names = []
+            for property_node in pattern.properties:
+                names.extend(self._pattern_names(property_node.pattern))
+            if pattern.rest is not None:
+                names.append(pattern.rest.name)
+            return names
+
+        return []
+
+    def _bind_pattern(
+        self,
+        pattern: object,
+        value: object,
+        kind: str,
+        assign_existing_var: bool,
+    ) -> None:
+        if isinstance(pattern, BindingIdentifier):
+            self._declare_binding(
+                pattern.name,
+                value,
+                kind,
+                assign_existing_var,
+            )
+            return
+
+        if isinstance(pattern, ArrayBindingPattern):
+            self._bind_array_pattern(
+                pattern,
+                value,
+                kind,
+                assign_existing_var,
+            )
+            return
+
+        if isinstance(pattern, ObjectBindingPattern):
+            self._bind_object_pattern(
+                pattern,
+                value,
+                kind,
+                assign_existing_var,
+            )
+            return
+
+        raise InterpreterError("Unknown binding pattern.")
+
+    def _declare_binding(
+        self,
+        name: str,
+        value: object,
+        kind: str,
+        assign_existing_var: bool,
+    ) -> None:
+        try:
+            if kind == "var":
+                self.environment.define_var(
+                    name,
+                    value,
+                    assign_existing=assign_existing_var,
+                )
+            else:
+                self.environment.define(name, value, mutable=kind == "let")
+        except (NameError, TypeError) as error:
             raise InterpreterError(str(error)) from error
+
+    def _bind_array_pattern(
+        self,
+        pattern: ArrayBindingPattern,
+        value: object,
+        kind: str,
+        assign_existing_var: bool,
+    ) -> None:
+        if not isinstance(value, JSArray):
+            raise InterpreterError("Array destructuring source must be an array.")
+
+        index = 0
+        for element in pattern.elements:
+            if element is None:
+                index += 1
+                continue
+
+            item = value.items[index] if index < len(value.items) else JS_UNDEFINED
+            if item is JS_UNDEFINED and element.default is not None:
+                item = self.evaluate(element.default)
+
+            self._bind_pattern(
+                element.pattern,
+                item,
+                kind,
+                assign_existing_var,
+            )
+            index += 1
+
+        if pattern.rest is not None:
+            rest_items = list(value.items[index:])
+            self._bind_pattern(
+                pattern.rest,
+                JSArray(rest_items),
+                kind,
+                assign_existing_var,
+            )
+
+    def _bind_object_pattern(
+        self,
+        pattern: ObjectBindingPattern,
+        value: object,
+        kind: str,
+        assign_existing_var: bool,
+    ) -> None:
+        if not isinstance(value, JSObject):
+            raise InterpreterError("Object destructuring source must be an object.")
+
+        used_keys = set()
+        for property_node in pattern.properties:
+            used_keys.add(property_node.key)
+            item = value.properties.get(property_node.key, JS_UNDEFINED)
+            if item is JS_UNDEFINED and property_node.default is not None:
+                item = self.evaluate(property_node.default)
+
+            self._bind_pattern(
+                property_node.pattern,
+                item,
+                kind,
+                assign_existing_var,
+            )
+
+        if pattern.rest is not None:
+            remaining = {
+                key: property_value
+                for key, property_value in value.properties.items()
+                if key not in used_keys
+            }
+            self._declare_binding(
+                pattern.rest.name,
+                JSObject(remaining),
+                kind,
+                assign_existing_var,
+            )
 
     def _execute_if(self, statement: IfStatement) -> None:
         if to_boolean(self.evaluate(statement.test)):
@@ -494,7 +719,7 @@ class Interpreter:
                 self.evaluate(statement.update)
 
     def _copy_environment(self, environment: Environment) -> Environment:
-        copied = Environment(environment.parent)
+        copied = Environment(environment.parent, is_var_scope=environment.is_var_scope)
 
         for name, binding in environment.values.items():
             copied.define(name, binding.value, mutable=binding.mutable)
@@ -517,17 +742,33 @@ class Interpreter:
 
         try:
             for value in values:
+                if statement.kind == "var":
+                    self._bind_pattern(
+                        statement.target,
+                        value,
+                        "var",
+                        assign_existing_var=True,
+                    )
+                    try:
+                        self.execute(statement.body)
+                    except ContinueSignal:
+                        continue
+                    except BreakSignal:
+                        break
+                    continue
+
                 iteration_environment = Environment(loop_environment)
                 try:
-                    iteration_environment.define(
-                        statement.name,
+                    self.environment = iteration_environment
+                    self._bind_pattern(
+                        statement.target,
                         value,
-                        mutable=statement.kind == "let",
+                        statement.kind,
+                        assign_existing_var=True,
                     )
                 except NameError as error:
                     raise InterpreterError(str(error)) from error
 
-                self.environment = iteration_environment
                 try:
                     self.execute(statement.body)
                 except ContinueSignal:
@@ -559,17 +800,33 @@ class Interpreter:
 
         try:
             for key in keys:
+                if statement.kind == "var":
+                    self._bind_pattern(
+                        statement.target,
+                        key,
+                        "var",
+                        assign_existing_var=True,
+                    )
+                    try:
+                        self.execute(statement.body)
+                    except ContinueSignal:
+                        continue
+                    except BreakSignal:
+                        break
+                    continue
+
                 iteration_environment = Environment(loop_environment)
                 try:
-                    iteration_environment.define(
-                        statement.name,
+                    self.environment = iteration_environment
+                    self._bind_pattern(
+                        statement.target,
                         key,
-                        mutable=statement.kind == "let",
+                        statement.kind,
+                        assign_existing_var=True,
                     )
                 except NameError as error:
                     raise InterpreterError(str(error)) from error
 
-                self.environment = iteration_environment
                 try:
                     self.execute(statement.body)
                 except ContinueSignal:

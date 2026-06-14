@@ -11,6 +11,10 @@ class Statement:
     """Base class for statement nodes."""
 
 
+class BindingPattern:
+    """Base class for declaration and parameter binding patterns."""
+
+
 @dataclass(frozen=True)
 class Program:
     body: list[Statement]
@@ -29,8 +33,43 @@ class BlockStatement(Statement):
 @dataclass(frozen=True)
 class VariableDeclaration(Statement):
     kind: str
-    name: str
+    declarations: list["VariableDeclarator"]
+
+
+@dataclass(frozen=True)
+class VariableDeclarator:
+    pattern: BindingPattern
     initializer: Expression | None
+
+
+@dataclass(frozen=True)
+class BindingIdentifier(BindingPattern):
+    name: str
+
+
+@dataclass(frozen=True)
+class ArrayBindingElement:
+    pattern: BindingPattern
+    default: Expression | None = None
+
+
+@dataclass(frozen=True)
+class ArrayBindingPattern(BindingPattern):
+    elements: list[ArrayBindingElement | None]
+    rest: BindingPattern | None = None
+
+
+@dataclass(frozen=True)
+class ObjectBindingProperty:
+    key: str
+    pattern: BindingPattern
+    default: Expression | None = None
+
+
+@dataclass(frozen=True)
+class ObjectBindingPattern(BindingPattern):
+    properties: list[ObjectBindingProperty]
+    rest: BindingIdentifier | None = None
 
 
 @dataclass(frozen=True)
@@ -63,7 +102,7 @@ class ForStatement(Statement):
 @dataclass(frozen=True)
 class ForOfStatement(Statement):
     kind: str
-    name: str
+    target: BindingPattern
     iterable: Expression
     body: Statement
 
@@ -71,7 +110,7 @@ class ForOfStatement(Statement):
 @dataclass(frozen=True)
 class ForInStatement(Statement):
     kind: str
-    name: str
+    target: BindingPattern
     iterable: Expression
     body: Statement
 
@@ -101,7 +140,7 @@ class SwitchStatement(Statement):
 @dataclass(frozen=True)
 class FunctionDeclaration(Statement):
     name: str
-    parameters: list[str]
+    parameters: list[BindingPattern]
     body: BlockStatement
     rest_parameter: str | None = None
     parameter_defaults: list[Expression | None] | None = None
@@ -115,7 +154,7 @@ class ReturnStatement(Statement):
 @dataclass(frozen=True)
 class FunctionExpression(Expression):
     name: str | None
-    parameters: list[str]
+    parameters: list[BindingPattern]
     body: BlockStatement
     rest_parameter: str | None = None
     parameter_defaults: list[Expression | None] | None = None
@@ -123,7 +162,7 @@ class FunctionExpression(Expression):
 
 @dataclass(frozen=True)
 class ArrowFunctionExpression(Expression):
-    parameters: list[str]
+    parameters: list[BindingPattern]
     body: Expression | BlockStatement
     rest_parameter: str | None = None
     parameter_defaults: list[Expression | None] | None = None

@@ -47,16 +47,21 @@ The codebase keeps these pieces separated:
   assignments, compound assignments including `%=` and `**=`, prefix/postfix
   `++` and `--` on variables, properties, and indexes, member access, computed
   access, calls, spread arguments, and `new Date(...)`.
-- Statements: expression statements, `let`, `const`, blocks, `if`/`else`,
+- Statements: expression statements, `let`, `const`, `var`, blocks, `if`/`else`,
   `switch`/`case`/`default`, `for`, `for...of`, `for...in`, `while`,
   `do...while`, `break`, `continue`, function declarations, and `return`.
+- Declarations: identifier bindings plus array and object destructuring
+  patterns in `let`, `const`, and `var` declarations. Destructuring supports
+  skipped array entries, nested patterns, defaults, and array/object rest
+  patterns.
 - Scoping: lexical environments, parent-scope lookup, variable shadowing,
-  function-local scope, closure capture, function-declaration hoisting, and
+  function-local scope, function/global-scoped `var`, closure capture,
+  function-declaration hoisting, simple `var` name hoisting to `undefined`, and
   const reassignment protection, including per-iteration `let` bindings for
   closures in classic `for` loops.
 - Functions: declarations, expressions, arrow functions, parameters, rest
-  parameters, default parameters, recursion, closures, callbacks, returned
-  functions, and missing arguments as `undefined`.
+  parameters, default parameters, destructured parameters, recursion, closures,
+  callbacks, returned functions, and missing arguments as `undefined`.
 - Arrays: literals, indexing, length, indexed assignment, array spread,
   `push`, `pop`, `shift`, `unshift`, `slice`, `splice`, `concat`, `includes`,
   `indexOf`, `reverse`, `join`, default `sort`, `map`, `filter`, `reduce`,
@@ -95,8 +100,13 @@ Notable missing or incomplete areas include:
 
 - No full ECMAScript compatibility, including try/catch, throw, classes,
   prototypes, `this`, modules, imports, async functions, generators, promises,
-  destructuring, bitwise operators, regex literals, or the full standard
-  library.
+  bitwise operators, regex literals, or the full standard library.
+- Destructuring is supported in declarations and function or arrow parameters,
+  but destructuring assignment expressions such as `[a, b] = [b, a]` are not
+  supported.
+- `var` implements function/global scoping and simple declaration-name hoisting,
+  but it does not model every ECMAScript global-object or browser Annex B
+  scoping edge case.
 - Date support is intentionally minimal and does not attempt full JavaScript
   date parsing or timezone behavior.
 - Object output is basic; full JSON-style formatting is not a goal.
@@ -198,6 +208,8 @@ Additional examples show later supported features:
 - `examples/19_iteration_helpers.js`
 - `examples/20_template_json.js`
 - `examples/21_loop_closure.js`
+- `examples/22_final_audit_fixes.js`
+- `examples/23_var_destructuring.js`
 
 ## Repository Structure
 

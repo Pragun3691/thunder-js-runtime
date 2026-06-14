@@ -393,7 +393,7 @@ def _json_object() -> dict[str, object]:
 
 
 def create_global_environment(output: Callable[[str], None]) -> Environment:
-    environment = Environment()
+    environment = Environment(is_var_scope=True)
     environment.define("console", {"log": ConsoleLog(output)}, mutable=False)
     environment.define("Math", _math_object(), mutable=False)
     environment.define("Array", _array_object(), mutable=False)

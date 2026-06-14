@@ -2,9 +2,13 @@
 
 from thunder_js.ast_nodes import (
     AssignmentExpression,
+    ArrayBindingElement,
+    ArrayBindingPattern,
     ArrayLiteral,
     ArrowFunctionExpression,
     BinaryExpression,
+    BindingIdentifier,
+    BindingPattern,
     BlockStatement,
     BreakStatement,
     BooleanLiteral,
@@ -27,6 +31,8 @@ from thunder_js.ast_nodes import (
     NewExpression,
     NullLiteral,
     NumericLiteral,
+    ObjectBindingPattern,
+    ObjectBindingProperty,
     ObjectLiteral,
     ObjectProperty,
     PostfixUpdateExpression,
@@ -43,6 +49,7 @@ from thunder_js.ast_nodes import (
     UnaryExpression,
     UndefinedLiteral,
     VariableDeclaration,
+    VariableDeclarator,
     WhileStatement,
 )
 from thunder_js.tokens import Token, TokenType
@@ -105,6 +112,8 @@ class Parser:
             return self._variable_declaration("let")
         if self._match(TokenType.CONST):
             return self._variable_declaration("const")
+        if self._match(TokenType.VAR):
+            return self._variable_declaration("var")
         if self._match(TokenType.IF):
             return self._if_statement()
         if self._match(TokenType.WHILE):
@@ -151,16 +160,9 @@ class Parser:
         return BlockStatement(body)
 
     def _variable_declaration(self, kind: str) -> VariableDeclaration:
-        name = self._consume(TokenType.IDENTIFIER, f"Expected {kind} variable name.")
-        initializer = None
-
-        if self._match(TokenType.EQUAL):
-            initializer = self.parse_expression()
-        elif kind == "const":
-            raise self._error(name, "Expected initializer for const declaration.")
-
+        declaration = self._variable_declaration_without_semicolon(kind)
         self._optional_semicolon()
-        return VariableDeclaration(kind, name.lexeme, initializer)
+        return declaration
 
     def _if_statement(self) -> IfStatement:
         self._consume(TokenType.LEFT_PAREN, "Expected '(' after if.")
@@ -205,41 +207,35 @@ class Parser:
 
         if self._match(TokenType.SEMICOLON):
             initializer = None
-        elif self._match(TokenType.LET):
-            name = self._consume(TokenType.IDENTIFIER, "Expected let variable name.")
-            if self._match_identifier("of"):
-                iterable = self.parse_expression()
-                self._consume(TokenType.RIGHT_PAREN, "Expected ')' after for...of.")
-                body = self._loop_body()
-                return ForOfStatement("let", name.lexeme, iterable, body)
-            if self._match_identifier("in"):
-                iterable = self.parse_expression()
-                self._consume(TokenType.RIGHT_PAREN, "Expected ')' after for...in.")
-                body = self._loop_body()
-                return ForInStatement("let", name.lexeme, iterable, body)
-            initializer = self._finish_variable_declaration_without_semicolon(
-                "let", name
-            )
-            self._consume(TokenType.SEMICOLON, "Expected ';' after for initializer.")
-        elif self._match(TokenType.CONST):
-            name = self._consume(TokenType.IDENTIFIER, "Expected const variable name.")
-            if self._match_identifier("of"):
-                iterable = self.parse_expression()
-                self._consume(TokenType.RIGHT_PAREN, "Expected ')' after for...of.")
-                body = self._loop_body()
-                return ForOfStatement("const", name.lexeme, iterable, body)
-            if self._match_identifier("in"):
-                iterable = self.parse_expression()
-                self._consume(TokenType.RIGHT_PAREN, "Expected ')' after for...in.")
-                body = self._loop_body()
-                return ForInStatement("const", name.lexeme, iterable, body)
-            initializer = self._finish_variable_declaration_without_semicolon(
-                "const", name
-            )
-            self._consume(TokenType.SEMICOLON, "Expected ';' after for initializer.")
         else:
-            initializer = self.parse_expression()
-            self._consume(TokenType.SEMICOLON, "Expected ';' after for initializer.")
+            kind = self._match_variable_kind()
+            if kind is not None:
+                target, target_tokens = self._binding_pattern()
+                if self._match_identifier("of"):
+                    iterable = self.parse_expression()
+                    self._consume(TokenType.RIGHT_PAREN, "Expected ')' after for...of.")
+                    body = self._loop_body()
+                    return ForOfStatement(kind, target, iterable, body)
+                if self._match_identifier("in"):
+                    iterable = self.parse_expression()
+                    self._consume(TokenType.RIGHT_PAREN, "Expected ')' after for...in.")
+                    body = self._loop_body()
+                    return ForInStatement(kind, target, iterable, body)
+                initializer = self._finish_variable_declaration_without_semicolon(
+                    kind,
+                    target,
+                    target_tokens,
+                )
+                self._consume(
+                    TokenType.SEMICOLON,
+                    "Expected ';' after for initializer.",
+                )
+            else:
+                initializer = self.parse_expression()
+                self._consume(
+                    TokenType.SEMICOLON,
+                    "Expected ';' after for initializer.",
+                )
 
         condition = None
         if not self._check(TokenType.SEMICOLON):
@@ -337,13 +333,15 @@ class Parser:
 
     def _function_parameters(
         self, owner: str
-    ) -> tuple[list[str], list[Expression | None], str | None]:
+    ) -> tuple[list[BindingPattern], list[Expression | None], str | None]:
         self._consume(TokenType.LEFT_PAREN, f"Expected '(' after {owner}.")
         parameters, parameter_defaults, rest_parameter = self._parameter_list()
         self._consume(TokenType.RIGHT_PAREN, "Expected ')' after parameters.")
         return parameters, parameter_defaults, rest_parameter
 
-    def _parameter_list(self) -> tuple[list[str], list[Expression | None], str | None]:
+    def _parameter_list(
+        self,
+    ) -> tuple[list[BindingPattern], list[Expression | None], str | None]:
         parameters = []
         parameter_defaults = []
         seen_names = set()
@@ -363,11 +361,11 @@ class Parser:
                     TokenType.IDENTIFIER,
                     "Expected rest parameter name.",
                 )
-                if rest_parameter_token.lexeme in seen_names:
-                    raise self._error(
-                        rest_parameter_token,
-                        f"Duplicate parameter name {rest_parameter_token.lexeme!r}.",
-                    )
+                self._ensure_unique_bindings(
+                    [rest_parameter_token],
+                    seen_names,
+                    "parameter",
+                )
                 rest_parameter = rest_parameter_token.lexeme
 
                 if self._match(TokenType.COMMA):
@@ -377,20 +375,12 @@ class Parser:
                     )
                 break
 
-            parameter = self._consume(
-                TokenType.IDENTIFIER,
-                "Expected parameter name.",
-            )
-            if parameter.lexeme in seen_names:
-                raise self._error(
-                    parameter,
-                    f"Duplicate parameter name {parameter.lexeme!r}.",
-                )
-            parameters.append(parameter.lexeme)
+            parameter, bindings = self._binding_pattern()
+            self._ensure_unique_bindings(bindings, seen_names, "parameter")
+            parameters.append(parameter)
             parameter_defaults.append(
                 self.parse_expression() if self._match(TokenType.EQUAL) else None
             )
-            seen_names.add(parameter.lexeme)
 
             if not self._match(TokenType.COMMA):
                 break
@@ -432,27 +422,56 @@ class Parser:
     def _variable_declaration_without_semicolon(
         self, kind: str
     ) -> VariableDeclaration:
-        name = self._consume(TokenType.IDENTIFIER, f"Expected {kind} variable name.")
-        return self._finish_variable_declaration_without_semicolon(kind, name)
+        pattern, bindings = self._binding_pattern()
+        return self._finish_variable_declaration_without_semicolon(
+            kind,
+            pattern,
+            bindings,
+        )
 
     def _finish_variable_declaration_without_semicolon(
-        self, kind: str, name: Token
+        self,
+        kind: str,
+        first_pattern: BindingPattern,
+        first_bindings: list[Token],
     ) -> VariableDeclaration:
-        initializer = None
+        declarations = []
+        seen_names = set()
+        pattern = first_pattern
+        bindings = first_bindings
 
-        if self._match(TokenType.EQUAL):
-            initializer = self.parse_expression()
-        elif kind == "const":
-            raise self._error(name, "Expected initializer for const declaration.")
+        while True:
+            self._ensure_unique_bindings(bindings, seen_names, "declaration")
+            initializer = None
 
-        return VariableDeclaration(kind, name.lexeme, initializer)
+            if self._match(TokenType.EQUAL):
+                initializer = self.parse_expression()
+            elif kind == "const":
+                raise self._error(
+                    self._binding_error_token(bindings),
+                    "Expected initializer for const declaration.",
+                )
+            elif not isinstance(pattern, BindingIdentifier):
+                raise self._error(
+                    self._binding_error_token(bindings),
+                    "Destructuring declaration requires an initializer.",
+                )
+
+            declarations.append(VariableDeclarator(pattern, initializer))
+
+            if not self._match(TokenType.COMMA):
+                break
+
+            pattern, bindings = self._binding_pattern()
+
+        return VariableDeclaration(kind, declarations)
 
     def _arrow_function(self) -> Expression:
         if self._check(TokenType.IDENTIFIER) and self._check_next(TokenType.ARROW):
             parameter = self._advance()
             self._advance()
             body = self._arrow_body()
-            return ArrowFunctionExpression([parameter.lexeme], body)
+            return ArrowFunctionExpression([BindingIdentifier(parameter.lexeme)], body)
 
         if self._is_parenthesized_arrow_parameters():
             parameters, parameter_defaults, rest_parameter = self._arrow_parameters()
@@ -467,7 +486,9 @@ class Parser:
 
         return self._assignment()
 
-    def _arrow_parameters(self) -> tuple[list[str], list[Expression | None], str | None]:
+    def _arrow_parameters(
+        self,
+    ) -> tuple[list[BindingPattern], list[Expression | None], str | None]:
         self._consume(TokenType.LEFT_PAREN, "Expected '(' before arrow parameters.")
         parameters, parameter_defaults, rest_parameter = self._parameter_list()
         self._consume(TokenType.RIGHT_PAREN, "Expected ')' after arrow parameters.")
@@ -800,6 +821,144 @@ class Parser:
             return str(value)
 
         raise self._error(self._peek(), "Expected object property key.")
+
+    def _binding_pattern(self) -> tuple[BindingPattern, list[Token]]:
+        if self._match(TokenType.IDENTIFIER):
+            token = self._previous()
+            return BindingIdentifier(token.lexeme), [token]
+
+        if self._match(TokenType.LEFT_BRACKET):
+            return self._array_binding_pattern()
+
+        if self._match(TokenType.LEFT_BRACE):
+            return self._object_binding_pattern()
+
+        raise self._error(self._peek(), "Expected binding name or pattern.")
+
+    def _array_binding_pattern(self) -> tuple[ArrayBindingPattern, list[Token]]:
+        elements = []
+        rest = None
+        bindings = []
+
+        if not self._check(TokenType.RIGHT_BRACKET):
+            while True:
+                if self._match(TokenType.COMMA):
+                    elements.append(None)
+                    if self._check(TokenType.RIGHT_BRACKET):
+                        break
+                    continue
+
+                if self._match(TokenType.ELLIPSIS):
+                    rest, rest_bindings = self._binding_pattern()
+                    bindings.extend(rest_bindings)
+                    if self._match(TokenType.COMMA):
+                        raise self._error(
+                            self._previous(),
+                            "Rest element must be last.",
+                        )
+                    break
+
+                pattern, pattern_bindings = self._binding_pattern()
+                default = self.parse_expression() if self._match(TokenType.EQUAL) else None
+                elements.append(ArrayBindingElement(pattern, default))
+                bindings.extend(pattern_bindings)
+
+                if not self._match(TokenType.COMMA):
+                    break
+                if self._check(TokenType.RIGHT_BRACKET):
+                    break
+
+        self._consume(TokenType.RIGHT_BRACKET, "Expected ']' after array pattern.")
+        return ArrayBindingPattern(elements, rest), bindings
+
+    def _object_binding_pattern(self) -> tuple[ObjectBindingPattern, list[Token]]:
+        properties = []
+        rest = None
+        bindings = []
+
+        if not self._check(TokenType.RIGHT_BRACE):
+            while True:
+                if self._match(TokenType.ELLIPSIS):
+                    rest_token = self._consume(
+                        TokenType.IDENTIFIER,
+                        "Expected object rest name.",
+                    )
+                    rest = BindingIdentifier(rest_token.lexeme)
+                    bindings.append(rest_token)
+                    if self._match(TokenType.COMMA):
+                        raise self._error(
+                            self._previous(),
+                            "Rest property must be last.",
+                        )
+                    break
+
+                key, key_token = self._object_binding_property_key()
+                if self._match(TokenType.COLON):
+                    pattern, pattern_bindings = self._binding_pattern()
+                else:
+                    if key_token.type != TokenType.IDENTIFIER:
+                        raise self._error(
+                            key_token,
+                            "Expected ':' after object pattern key.",
+                        )
+                    pattern = BindingIdentifier(key)
+                    pattern_bindings = [key_token]
+
+                default = self.parse_expression() if self._match(TokenType.EQUAL) else None
+                properties.append(ObjectBindingProperty(key, pattern, default))
+                bindings.extend(pattern_bindings)
+
+                if not self._match(TokenType.COMMA):
+                    break
+                if self._check(TokenType.RIGHT_BRACE):
+                    break
+
+        self._consume(TokenType.RIGHT_BRACE, "Expected '}' after object pattern.")
+        return ObjectBindingPattern(properties, rest), bindings
+
+    def _object_binding_property_key(self) -> tuple[str, Token]:
+        if self._match(TokenType.IDENTIFIER):
+            token = self._previous()
+            return token.lexeme, token
+        if self._match(TokenType.STRING):
+            token = self._previous()
+            return token.literal, token
+        if self._match(TokenType.NUMBER):
+            token = self._previous()
+            value = token.literal
+            if isinstance(value, float) and value.is_integer():
+                return str(int(value)), token
+            return str(value), token
+
+        raise self._error(self._peek(), "Expected object pattern key.")
+
+    def _ensure_unique_bindings(
+        self,
+        bindings: list[Token],
+        seen_names: set[str],
+        owner: str,
+    ) -> None:
+        for token in bindings:
+            if token.lexeme in seen_names:
+                raise self._error(
+                    token,
+                    f"Duplicate {owner} name {token.lexeme!r}.",
+                )
+            seen_names.add(token.lexeme)
+
+    def _binding_error_token(self, bindings: list[Token]) -> Token:
+        if bindings:
+            return bindings[0]
+        return self._previous()
+
+    def _match_variable_kind(self) -> str | None:
+        if self._match(TokenType.LET):
+            return "let"
+        if self._match(TokenType.CONST):
+            return "const"
+        if self._match(TokenType.VAR):
+            return "var"
+        return None
 
     def _require_assignment_target(self, expression: Expression) -> None:
         if isinstance(expression, ASSIGNMENT_TARGET_TYPES):
