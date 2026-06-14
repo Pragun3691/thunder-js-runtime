@@ -30,6 +30,7 @@ class TokenType(str, Enum):
     FALSE = "FALSE"
     NULL = "NULL"
     UNDEFINED = "UNDEFINED"
+    TYPEOF = "TYPEOF"
     BREAK = "BREAK"
     CONTINUE = "CONTINUE"
 

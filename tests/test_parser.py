@@ -6,6 +6,7 @@ from thunder_js.ast_nodes import (
     BooleanLiteral,
     CallExpression,
     ComputedMemberExpression,
+    ConditionalExpression,
     GroupingExpression,
     Identifier,
     LogicalExpression,
@@ -86,6 +87,32 @@ def test_logical_and_with_unary_expression():
     assert expression.operator == "&&"
     assert expression.left == BooleanLiteral(True)
     assert expression.right == UnaryExpression("!", BooleanLiteral(False))
+
+
+def test_typeof_is_a_unary_expression():
+    expression = parse_expression("typeof missing")
+
+    assert expression == UnaryExpression("typeof", Identifier("missing"))
+
+
+def test_ternary_has_lower_precedence_than_logical_or():
+    expression = parse_expression("false || true ? 1 : 2")
+
+    assert expression == ConditionalExpression(
+        LogicalExpression(BooleanLiteral(False), "||", BooleanLiteral(True)),
+        NumericLiteral(1),
+        NumericLiteral(2),
+    )
+
+
+def test_ternary_is_right_associative():
+    expression = parse_expression("a ? b : c ? d : e")
+
+    assert expression == ConditionalExpression(
+        Identifier("a"),
+        Identifier("b"),
+        ConditionalExpression(Identifier("c"), Identifier("d"), Identifier("e")),
+    )
 
 
 def test_chained_property_and_computed_member_access():

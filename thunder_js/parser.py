@@ -10,6 +10,7 @@ from thunder_js.ast_nodes import (
     BooleanLiteral,
     CallExpression,
     ComputedMemberExpression,
+    ConditionalExpression,
     ContinueStatement,
     DoWhileStatement,
     Expression,
@@ -278,9 +279,17 @@ class Parser:
 
     def _function_declaration(self) -> FunctionDeclaration:
         name = self._consume(TokenType.IDENTIFIER, "Expected function name.")
-        parameters, rest_parameter = self._function_parameters("function name")
+        parameters, parameter_defaults, rest_parameter = self._function_parameters(
+            "function name"
+        )
         body = self._function_body()
-        return FunctionDeclaration(name.lexeme, parameters, body, rest_parameter)
+        return FunctionDeclaration(
+            name.lexeme,
+            parameters,
+            body,
+            rest_parameter,
+            parameter_defaults,
+        )
 
     def _function_expression(self) -> FunctionExpression:
         name = None
@@ -288,23 +297,28 @@ class Parser:
         if self._match(TokenType.IDENTIFIER):
             name = self._previous().lexeme
 
-        parameters, rest_parameter = self._function_parameters("function")
+        parameters, parameter_defaults, rest_parameter = self._function_parameters(
+            "function"
+        )
         body = self._function_body()
-        return FunctionExpression(name, parameters, body, rest_parameter)
+        return FunctionExpression(name, parameters, body, rest_parameter, parameter_defaults)
 
-    def _function_parameters(self, owner: str) -> tuple[list[str], str | None]:
+    def _function_parameters(
+        self, owner: str
+    ) -> tuple[list[str], list[Expression | None], str | None]:
         self._consume(TokenType.LEFT_PAREN, f"Expected '(' after {owner}.")
-        parameters, rest_parameter = self._parameter_list()
+        parameters, parameter_defaults, rest_parameter = self._parameter_list()
         self._consume(TokenType.RIGHT_PAREN, "Expected ')' after parameters.")
-        return parameters, rest_parameter
+        return parameters, parameter_defaults, rest_parameter
 
-    def _parameter_list(self) -> tuple[list[str], str | None]:
+    def _parameter_list(self) -> tuple[list[str], list[Expression | None], str | None]:
         parameters = []
+        parameter_defaults = []
         seen_names = set()
         rest_parameter = None
 
         if self._check(TokenType.RIGHT_PAREN):
-            return parameters, rest_parameter
+            return parameters, parameter_defaults, rest_parameter
 
         while True:
             if self._match(TokenType.ELLIPSIS):
@@ -341,6 +355,9 @@ class Parser:
                     f"Duplicate parameter name {parameter.lexeme!r}.",
                 )
             parameters.append(parameter.lexeme)
+            parameter_defaults.append(
+                self.parse_expression() if self._match(TokenType.EQUAL) else None
+            )
             seen_names.add(parameter.lexeme)
 
             if not self._match(TokenType.COMMA):
@@ -349,7 +366,7 @@ class Parser:
             if self._check(TokenType.RIGHT_PAREN):
                 break
 
-        return parameters, rest_parameter
+        return parameters, parameter_defaults, rest_parameter
 
     def _function_body(self) -> BlockStatement:
         self._consume(TokenType.LEFT_BRACE, "Expected '{' before function body.")
@@ -401,18 +418,23 @@ class Parser:
             return ArrowFunctionExpression([parameter.lexeme], body)
 
         if self._is_parenthesized_arrow_parameters():
-            parameters, rest_parameter = self._arrow_parameters()
+            parameters, parameter_defaults, rest_parameter = self._arrow_parameters()
             self._consume(TokenType.ARROW, "Expected '=>' after arrow parameters.")
             body = self._arrow_body()
-            return ArrowFunctionExpression(parameters, body, rest_parameter)
+            return ArrowFunctionExpression(
+                parameters,
+                body,
+                rest_parameter,
+                parameter_defaults,
+            )
 
         return self._assignment()
 
-    def _arrow_parameters(self) -> tuple[list[str], str | None]:
+    def _arrow_parameters(self) -> tuple[list[str], list[Expression | None], str | None]:
         self._consume(TokenType.LEFT_PAREN, "Expected '(' before arrow parameters.")
-        parameters, rest_parameter = self._parameter_list()
+        parameters, parameter_defaults, rest_parameter = self._parameter_list()
         self._consume(TokenType.RIGHT_PAREN, "Expected ')' after arrow parameters.")
-        return parameters, rest_parameter
+        return parameters, parameter_defaults, rest_parameter
 
     def _arrow_body(self) -> Expression | BlockStatement:
         if self._check(TokenType.LEFT_BRACE):
@@ -424,37 +446,33 @@ class Parser:
         if not self._check(TokenType.LEFT_PAREN):
             return False
 
-        index = self.current + 1
+        depth = 0
+        index = self.current
 
-        if self._token_type_at(index) == TokenType.RIGHT_PAREN:
-            return self._token_type_at(index + 1) == TokenType.ARROW
+        while index < len(self.tokens):
+            token_type = self._token_type_at(index)
 
-        while True:
-            if self._token_type_at(index) == TokenType.ELLIPSIS:
-                index += 1
-                if self._token_type_at(index) != TokenType.IDENTIFIER:
-                    return False
-                index += 1
-                if self._token_type_at(index) != TokenType.RIGHT_PAREN:
-                    return False
-                return self._token_type_at(index + 1) == TokenType.ARROW
-
-            if self._token_type_at(index) != TokenType.IDENTIFIER:
-                return False
+            if token_type in (
+                TokenType.LEFT_PAREN,
+                TokenType.LEFT_BRACE,
+                TokenType.LEFT_BRACKET,
+            ):
+                depth += 1
+            elif token_type in (
+                TokenType.RIGHT_PAREN,
+                TokenType.RIGHT_BRACE,
+                TokenType.RIGHT_BRACKET,
+            ):
+                depth -= 1
+                if depth == 0:
+                    return self._token_type_at(index + 1) == TokenType.ARROW
 
             index += 1
 
-            if self._token_type_at(index) == TokenType.COMMA:
-                index += 1
-                continue
-
-            if self._token_type_at(index) == TokenType.RIGHT_PAREN:
-                return self._token_type_at(index + 1) == TokenType.ARROW
-
-            return False
+        return False
 
     def _assignment(self) -> Expression:
-        target = self._logical_or()
+        target = self._conditional()
 
         if self._match(*ASSIGNMENT_OPERATORS):
             operator = self._previous().lexeme
@@ -463,6 +481,17 @@ class Parser:
             return AssignmentExpression(target, operator, value)
 
         return target
+
+    def _conditional(self) -> Expression:
+        expression = self._logical_or()
+
+        if self._match(TokenType.QUESTION):
+            consequent = self.parse_expression()
+            self._consume(TokenType.COLON, "Expected ':' after true branch.")
+            alternate = self._assignment()
+            return ConditionalExpression(expression, consequent, alternate)
+
+        return expression
 
     def _logical_or(self) -> Expression:
         expression = self._logical_and()
@@ -545,7 +574,7 @@ class Parser:
         return expression
 
     def _unary(self) -> Expression:
-        if self._match(TokenType.BANG, TokenType.MINUS, TokenType.PLUS):
+        if self._match(TokenType.BANG, TokenType.MINUS, TokenType.PLUS, TokenType.TYPEOF):
             operator_token = self._previous()
             operator = self._previous().lexeme
             argument = self._unary()
@@ -674,6 +703,13 @@ class Parser:
             while True:
                 if self._match(TokenType.ELLIPSIS):
                     properties.append(SpreadElement(self.parse_expression()))
+                elif self._match(TokenType.IDENTIFIER):
+                    key = self._previous().lexeme
+                    if self._match(TokenType.COLON):
+                        value = self.parse_expression()
+                    else:
+                        value = Identifier(key)
+                    properties.append(ObjectProperty(key, value))
                 else:
                     key = self._object_property_key()
                     self._consume(TokenType.COLON, "Expected ':' after object key.")

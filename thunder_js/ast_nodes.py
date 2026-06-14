@@ -88,6 +88,7 @@ class FunctionDeclaration(Statement):
     parameters: list[str]
     body: BlockStatement
     rest_parameter: str | None = None
+    parameter_defaults: list[Expression | None] | None = None
 
 
 @dataclass(frozen=True)
@@ -101,6 +102,7 @@ class FunctionExpression(Expression):
     parameters: list[str]
     body: BlockStatement
     rest_parameter: str | None = None
+    parameter_defaults: list[Expression | None] | None = None
 
 
 @dataclass(frozen=True)
@@ -108,6 +110,7 @@ class ArrowFunctionExpression(Expression):
     parameters: list[str]
     body: Expression | BlockStatement
     rest_parameter: str | None = None
+    parameter_defaults: list[Expression | None] | None = None
 
 
 @dataclass(frozen=True)
@@ -184,6 +187,13 @@ class LogicalExpression(Expression):
     left: Expression
     operator: str
     right: Expression
+
+
+@dataclass(frozen=True)
+class ConditionalExpression(Expression):
+    test: Expression
+    consequent: Expression
+    alternate: Expression
 
 
 @dataclass(frozen=True)

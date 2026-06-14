@@ -22,6 +22,7 @@ KEYWORDS = {
     "false": TokenType.FALSE,
     "null": TokenType.NULL,
     "undefined": TokenType.UNDEFINED,
+    "typeof": TokenType.TYPEOF,
     "break": TokenType.BREAK,
     "continue": TokenType.CONTINUE,
 }

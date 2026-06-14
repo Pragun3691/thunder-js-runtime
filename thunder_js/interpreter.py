@@ -13,6 +13,7 @@ from thunder_js.ast_nodes import (
     BooleanLiteral,
     CallExpression,
     ComputedMemberExpression,
+    ConditionalExpression,
     ContinueStatement,
     DoWhileStatement,
     ExpressionStatement,
@@ -58,6 +59,7 @@ from thunder_js.values import (
     JS_UNDEFINED,
     format_value,
     is_nan,
+    is_number,
     js_add,
     js_divide,
     js_remainder,
@@ -108,6 +110,7 @@ class JSFunction(JSCallable):
         self,
         parameters: list[str],
         rest_parameter: str | None,
+        parameter_defaults: list[object | None] | None,
         body: object,
         closure: Environment,
         interpreter: "Interpreter",
@@ -115,6 +118,10 @@ class JSFunction(JSCallable):
     ):
         self.parameters = parameters
         self.rest_parameter = rest_parameter
+        if parameter_defaults is None:
+            self.parameter_defaults = [None] * len(parameters)
+        else:
+            self.parameter_defaults = parameter_defaults
         self.body = body
         self.closure = closure
         self.interpreter = interpreter
@@ -136,16 +143,25 @@ class JSFunction(JSCallable):
         function_environment = Environment(self.closure)
 
         try:
-            for index, parameter in enumerate(self.parameters):
-                if index < len(arguments):
-                    value = arguments[index]
-                else:
-                    value = JS_UNDEFINED
-                function_environment.define(parameter, value)
+            previous = self.interpreter.environment
+            self.interpreter.environment = function_environment
+            try:
+                for index, parameter in enumerate(self.parameters):
+                    if index < len(arguments) and arguments[index] is not JS_UNDEFINED:
+                        value = arguments[index]
+                    else:
+                        default = self.parameter_defaults[index]
+                        if default is None:
+                            value = JS_UNDEFINED
+                        else:
+                            value = self.interpreter.evaluate(default)
+                    function_environment.define(parameter, value)
 
-            if self.rest_parameter is not None:
-                rest_items = list(arguments[len(self.parameters) :])
-                function_environment.define(self.rest_parameter, JSArray(rest_items))
+                if self.rest_parameter is not None:
+                    rest_items = list(arguments[len(self.parameters) :])
+                    function_environment.define(self.rest_parameter, JSArray(rest_items))
+            finally:
+                self.interpreter.environment = previous
 
             if isinstance(self.body, BlockStatement):
                 self.interpreter._execute_block(
@@ -252,6 +268,7 @@ class Interpreter:
             return JSFunction(
                 expression.parameters,
                 expression.rest_parameter,
+                expression.parameter_defaults,
                 expression.body,
                 self.environment,
                 self,
@@ -261,6 +278,7 @@ class Interpreter:
             return JSFunction(
                 expression.parameters,
                 expression.rest_parameter,
+                expression.parameter_defaults,
                 expression.body,
                 self.environment,
                 self,
@@ -273,6 +291,8 @@ class Interpreter:
             return self._evaluate_binary(expression)
         if isinstance(expression, LogicalExpression):
             return self._evaluate_logical(expression)
+        if isinstance(expression, ConditionalExpression):
+            return self._evaluate_conditional(expression)
         if isinstance(expression, Identifier):
             return self._look_up_identifier(expression)
         if isinstance(expression, PropertyAccessExpression):
@@ -347,6 +367,7 @@ class Interpreter:
         function = JSFunction(
             statement.parameters,
             statement.rest_parameter,
+            statement.parameter_defaults,
             statement.body,
             self.environment,
             self,
@@ -443,6 +464,9 @@ class Interpreter:
             return
 
     def _evaluate_unary(self, expression: UnaryExpression) -> object:
+        if expression.operator == "typeof":
+            return self._evaluate_typeof(expression.argument)
+
         value = self.evaluate(expression.argument)
 
         if expression.operator == "!":
@@ -453,6 +477,29 @@ class Interpreter:
             return to_number(value)
 
         raise InterpreterError(f"Unsupported unary operator {expression.operator}.")
+
+    def _evaluate_typeof(self, argument: object) -> str:
+        if isinstance(argument, Identifier):
+            try:
+                value = self.environment.get(argument.name)
+            except NameError:
+                return "undefined"
+        else:
+            value = self.evaluate(argument)
+
+        if value is JS_UNDEFINED:
+            return "undefined"
+        if value is JS_NULL:
+            return "object"
+        if isinstance(value, bool):
+            return "boolean"
+        if is_number(value):
+            return "number"
+        if isinstance(value, str):
+            return "string"
+        if isinstance(value, JSCallable):
+            return "function"
+        return "object"
 
     def _evaluate_binary(self, expression: BinaryExpression) -> object:
         left = self.evaluate(expression.left)
@@ -536,6 +583,11 @@ class Interpreter:
             return self.evaluate(expression.right)
 
         raise InterpreterError(f"Unsupported logical operator {expression.operator}.")
+
+    def _evaluate_conditional(self, expression: ConditionalExpression) -> object:
+        if to_boolean(self.evaluate(expression.test)):
+            return self.evaluate(expression.consequent)
+        return self.evaluate(expression.alternate)
 
     def _evaluate_assignment(self, expression: AssignmentExpression) -> object:
         right = self.evaluate(expression.value)
