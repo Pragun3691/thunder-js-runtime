@@ -117,6 +117,23 @@ console.log(Math.sqrt(-1));
     assert run_and_collect(source) == ["8", "2", "NaN", "3", "1.5", "NaN"]
 
 
+def test_exponentiation_zero_negative_power_is_cli_safe():
+    source = """
+console.log(0 ** -1);
+console.log((-0) ** -1);
+console.log(Math.pow(0, -1));
+console.log(Math.pow(-0, -1));
+console.log((-1) ** 0.5);
+"""
+
+    exit_code, stdout, stderr = run_cli(source)
+
+    assert exit_code == 0
+    assert stdout == "Infinity\n-Infinity\nInfinity\n-Infinity\nNaN\n"
+    assert stderr == ""
+    assert "Traceback" not in stderr
+
+
 def test_selected_math_log_sign_hypot_and_cbrt_methods():
     source = """
 console.log(Math.log(Math.E));

@@ -2,6 +2,7 @@
 
 import math
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from thunder_js.ast_nodes import (
     AssignmentExpression,
@@ -70,6 +71,7 @@ from thunder_js.values import (
     is_number,
     js_add,
     js_divide,
+    js_power,
     js_remainder,
     loose_equal,
     strict_equal,
@@ -96,6 +98,15 @@ class ReturnSignal(Exception):
 
     def __init__(self, value: object):
         self.value = value
+
+
+OPTIONAL_CHAIN_SHORT_CIRCUIT = object()
+
+
+@dataclass(frozen=True)
+class ResolvedReference:
+    read: Callable[[], object]
+    write: Callable[[object], object]
 
 
 class NativeMethod(JSCallable):
@@ -299,7 +310,7 @@ class Interpreter:
         if isinstance(expression, ObjectLiteral):
             return self._evaluate_object_literal(expression)
         if isinstance(expression, FunctionExpression):
-            return JSFunction(
+            function = JSFunction(
                 expression.parameters,
                 expression.rest_parameter,
                 expression.parameter_defaults,
@@ -309,6 +320,11 @@ class Interpreter:
                 expression.name,
                 dynamic_this=True,
             )
+            if expression.name is not None:
+                named_environment = Environment(self.environment)
+                named_environment.define(expression.name, function, mutable=False)
+                function.closure = named_environment
+            return function
         if isinstance(expression, ArrowFunctionExpression):
             return JSFunction(
                 expression.parameters,
@@ -334,11 +350,11 @@ class Interpreter:
         if isinstance(expression, Identifier):
             return self._look_up_identifier(expression)
         if isinstance(expression, PropertyAccessExpression):
-            return self._get_property(expression)
+            return self._finish_optional_chain(self._evaluate_chain(expression))
         if isinstance(expression, ComputedMemberExpression):
-            return self._get_computed_member(expression)
+            return self._finish_optional_chain(self._evaluate_chain(expression))
         if isinstance(expression, CallExpression):
-            return self._evaluate_call(expression)
+            return self._finish_optional_chain(self._evaluate_chain(expression))
         if isinstance(expression, NewExpression):
             return self._evaluate_new(expression)
         if isinstance(expression, AssignmentExpression):
@@ -859,28 +875,33 @@ class Interpreter:
 
     def _execute_switch(self, statement: SwitchStatement) -> None:
         discriminant = self.evaluate(statement.discriminant)
-        default_index = None
-        start_index = None
-
-        for index, case in enumerate(statement.cases):
-            if case.test is None:
-                default_index = index
-                continue
-
-            if strict_equal(discriminant, self.evaluate(case.test)):
-                start_index = index
-                break
-
-        if start_index is None:
-            start_index = default_index
-        if start_index is None:
-            return
-
+        previous = self.environment
+        self.environment = Environment(previous)
         try:
-            for case in statement.cases[start_index:]:
-                self._execute_statements(case.consequent)
-        except BreakSignal:
-            return
+            default_index = None
+            start_index = None
+
+            for index, case in enumerate(statement.cases):
+                if case.test is None:
+                    default_index = index
+                    continue
+
+                if strict_equal(discriminant, self.evaluate(case.test)):
+                    start_index = index
+                    break
+
+            if start_index is None:
+                start_index = default_index
+            if start_index is None:
+                return
+
+            try:
+                for case in statement.cases[start_index:]:
+                    self._execute_statements(case.consequent)
+            except BreakSignal:
+                return
+        finally:
+            self.environment = previous
 
     def _evaluate_unary(self, expression: UnaryExpression) -> object:
         if expression.operator == "typeof":
@@ -957,18 +978,7 @@ class Interpreter:
         raise InterpreterError(f"Unsupported binary operator {operator}.")
 
     def _power(self, left: object, right: object) -> object:
-        left_number = to_number(left)
-        right_number = to_number(right)
-
-        if is_nan(left_number) or is_nan(right_number):
-            return math.nan
-        if left_number < 0 and not right_number.is_integer():
-            return math.nan
-
-        try:
-            return left_number**right_number
-        except (OverflowError, ValueError):
-            return math.nan
+        return js_power(left, right)
 
     def _compare(self, left: object, right: object, operator: str) -> bool:
         if isinstance(left, str) and isinstance(right, str):
@@ -1019,13 +1029,15 @@ class Interpreter:
         return self.evaluate(expression.alternate)
 
     def _evaluate_assignment(self, expression: AssignmentExpression) -> object:
-        right = self.evaluate(expression.value)
-
         try:
-            if expression.operator == "=":
-                return self._assign_target(expression.target, right)
+            reference = self._resolve_reference(expression.target)
 
-            left = self._read_assignment_target(expression.target)
+            if expression.operator == "=":
+                right = self.evaluate(expression.value)
+                return reference.write(right)
+
+            left = reference.read()
+            right = self.evaluate(expression.value)
 
             if expression.operator == "+=":
                 value = js_add(left, right)
@@ -1044,9 +1056,101 @@ class Interpreter:
                     f"Unsupported assignment operator {expression.operator}."
                 )
 
-            return self._assign_target(expression.target, value)
-        except (NameError, TypeError) as error:
+            return reference.write(value)
+        except (NameError, TypeError, ValueError) as error:
             raise InterpreterError(str(error)) from error
+
+    def _resolve_reference(self, target: object) -> ResolvedReference:
+        if isinstance(target, Identifier):
+            environment = self.environment.resolve(target.name)
+
+            def read() -> object:
+                return environment.values[target.name].value
+
+            def write(value: object) -> object:
+                binding = environment.values[target.name]
+                if not binding.mutable:
+                    raise TypeError(f"Assignment to constant variable {target.name}.")
+                binding.value = value
+                return value
+
+            return ResolvedReference(read, write)
+
+        if isinstance(target, PropertyAccessExpression):
+            if target.optional:
+                raise InterpreterError(
+                    "Optional chaining cannot be used as an assignment target."
+                )
+            container = self.evaluate(target.object)
+            return self._property_reference(container, target.property.name)
+
+        if isinstance(target, ComputedMemberExpression):
+            if target.optional:
+                raise InterpreterError(
+                    "Optional chaining cannot be used as an assignment target."
+                )
+            container = self.evaluate(target.object)
+            key = self.evaluate(target.property)
+            return self._computed_reference(container, key)
+
+        raise InterpreterError("Invalid assignment target.")
+
+    def _property_reference(
+        self, container: object, property_name: str
+    ) -> ResolvedReference:
+        def read() -> object:
+            return self._get_property_value(container, property_name)
+
+        def write(value: object) -> object:
+            if not isinstance(container, JSObject):
+                raise InterpreterError(
+                    "Only object property assignment is supported yet."
+                )
+            container.properties[property_name] = value
+            return value
+
+        return ResolvedReference(read, write)
+
+    def _computed_reference(self, container: object, key: object) -> ResolvedReference:
+        property_name = self._property_key(key)
+
+        if isinstance(container, JSObject):
+            def read_object() -> object:
+                return container.properties.get(property_name, JS_UNDEFINED)
+
+            def write_object(value: object) -> object:
+                container.properties[property_name] = value
+                return value
+
+            return ResolvedReference(read_object, write_object)
+
+        if isinstance(container, JSArray):
+            index = self._canonical_array_index(property_name)
+
+            def read_array() -> object:
+                return self._get_computed_member_value(container, key)
+
+            def write_array(value: object) -> object:
+                if self._is_negative_numeric_key(key, property_name):
+                    raise InterpreterError("Array index must be non-negative.")
+                if index is None:
+                    raise InterpreterError("Array index must be a number.")
+                while len(container.items) <= index:
+                    container.items.append(JS_UNDEFINED)
+                container.items[index] = value
+                return value
+
+            return ResolvedReference(read_array, write_array)
+
+        def read_other() -> object:
+            return self._get_computed_member_value(container, key)
+
+        def write_other(value: object) -> object:
+            raise InterpreterError(
+                "Only array index and object property assignment are supported yet."
+            )
+
+        return ResolvedReference(read_other, write_other)
 
     def _read_assignment_target(self, target: object) -> object:
         if isinstance(target, Identifier):
@@ -1108,13 +1212,14 @@ class Interpreter:
             )
 
         try:
-            old_value = self._read_assignment_target(target)
+            reference = self._resolve_reference(target)
+            old_value = reference.read()
             amount = 1 if operator == "++" else -1
             new_value = to_number(old_value) + amount
-            assigned_value = self._assign_target(target, new_value)
+            assigned_value = reference.write(new_value)
             return old_value, assigned_value
 
-        except (NameError, TypeError) as error:
+        except (NameError, TypeError, ValueError) as error:
             raise InterpreterError(str(error)) from error
 
     def _look_up_identifier(self, expression: Identifier) -> object:
@@ -1263,6 +1368,56 @@ class Interpreter:
 
         raise InterpreterError(f"Array method {property_name} is not defined.")
 
+    def _array_property_names(self) -> set[str]:
+        return {
+            "length",
+            "reverse",
+            "join",
+            "push",
+            "pop",
+            "shift",
+            "unshift",
+            "slice",
+            "splice",
+            "concat",
+            "includes",
+            "indexOf",
+            "sort",
+            "map",
+            "filter",
+            "reduce",
+            "find",
+            "some",
+            "every",
+            "forEach",
+        }
+
+    def _string_property_names(self) -> set[str]:
+        return {
+            "length",
+            "split",
+            "replace",
+            "replaceAll",
+            "substring",
+            "slice",
+            "charAt",
+            "charCodeAt",
+            "repeat",
+            "padStart",
+            "padEnd",
+            "trim",
+            "trimStart",
+            "trimEnd",
+            "toUpperCase",
+            "toLowerCase",
+            "includes",
+            "startsWith",
+            "endsWith",
+            "indexOf",
+            "at",
+            "concat",
+        }
+
     def _get_date_property(self, date: JSDate, property_name: str) -> object:
         methods = {
             "getTime": lambda args: date.timestamp_ms,
@@ -1291,23 +1446,29 @@ class Interpreter:
         return self._get_computed_member_value(container, key)
 
     def _get_computed_member_value(self, container: object, key: object) -> object:
+        property_name = self._property_key(key)
+
         if isinstance(container, JSArray):
-            index = self._array_index(key)
+            index = self._canonical_array_index(property_name)
             if index is None:
+                if property_name in self._array_property_names():
+                    return self._get_array_property(container, property_name)
                 return JS_UNDEFINED
             if 0 <= index < len(container.items):
                 return container.items[index]
             return JS_UNDEFINED
 
         if isinstance(container, str):
-            index = self._array_index(key)
+            index = self._canonical_array_index(property_name)
             if index is None:
+                if property_name in self._string_property_names():
+                    return self._get_string_property(container, property_name)
                 return JS_UNDEFINED
             if 0 <= index < len(container):
                 return container[index]
             return JS_UNDEFINED
         if isinstance(container, JSObject):
-            return container.properties.get(self._property_key(key), JS_UNDEFINED)
+            return container.properties.get(property_name, JS_UNDEFINED)
 
         raise InterpreterError("Computed member access is not supported for this value.")
 
@@ -1338,15 +1499,52 @@ class Interpreter:
         container.items[index] = value
         return value
 
-    def _evaluate_call(self, expression: CallExpression) -> object:
-        callee, receiver, short_circuited, optional_callee = (
-            self._evaluate_call_target(expression.callee)
-        )
+    def _finish_optional_chain(self, value: object) -> object:
+        if value is OPTIONAL_CHAIN_SHORT_CIRCUIT:
+            return JS_UNDEFINED
+        return value
 
-        if short_circuited:
-            return JS_UNDEFINED
-        if (expression.optional or optional_callee) and self._is_nullish(callee):
-            return JS_UNDEFINED
+    def _evaluate_chain(self, expression: object) -> object:
+        if isinstance(expression, PropertyAccessExpression):
+            container = self._evaluate_chain_operand(expression.object)
+            if container is OPTIONAL_CHAIN_SHORT_CIRCUIT:
+                return OPTIONAL_CHAIN_SHORT_CIRCUIT
+            if expression.optional and self._is_nullish(container):
+                return OPTIONAL_CHAIN_SHORT_CIRCUIT
+            return self._get_property_value(container, expression.property.name)
+
+        if isinstance(expression, ComputedMemberExpression):
+            container = self._evaluate_chain_operand(expression.object)
+            if container is OPTIONAL_CHAIN_SHORT_CIRCUIT:
+                return OPTIONAL_CHAIN_SHORT_CIRCUIT
+            if expression.optional and self._is_nullish(container):
+                return OPTIONAL_CHAIN_SHORT_CIRCUIT
+            key = self.evaluate(expression.property)
+            return self._get_computed_member_value(container, key)
+
+        if isinstance(expression, CallExpression):
+            return self._evaluate_call_chain(expression)
+
+        return self.evaluate(expression)
+
+    def _evaluate_chain_operand(self, expression: object) -> object:
+        if isinstance(
+            expression,
+            (PropertyAccessExpression, ComputedMemberExpression, CallExpression),
+        ):
+            return self._evaluate_chain(expression)
+        return self.evaluate(expression)
+
+    def _evaluate_call(self, expression: CallExpression) -> object:
+        return self._finish_optional_chain(self._evaluate_call_chain(expression))
+
+    def _evaluate_call_chain(self, expression: CallExpression) -> object:
+        callee, receiver = self._evaluate_call_target(expression.callee)
+
+        if callee is OPTIONAL_CHAIN_SHORT_CIRCUIT:
+            return OPTIONAL_CHAIN_SHORT_CIRCUIT
+        if expression.optional and self._is_nullish(callee):
+            return OPTIONAL_CHAIN_SHORT_CIRCUIT
 
         arguments = self._evaluate_call_arguments(expression.arguments)
 
@@ -1355,31 +1553,34 @@ class Interpreter:
     def _evaluate_call_target(
         self,
         callee: object,
-    ) -> tuple[object, object, bool, bool]:
+    ) -> tuple[object, object]:
         if isinstance(callee, PropertyAccessExpression):
-            receiver = self.evaluate(callee.object)
+            receiver = self._evaluate_chain_operand(callee.object)
+            if receiver is OPTIONAL_CHAIN_SHORT_CIRCUIT:
+                return OPTIONAL_CHAIN_SHORT_CIRCUIT, JS_UNDEFINED
             if callee.optional and self._is_nullish(receiver):
-                return JS_UNDEFINED, JS_UNDEFINED, True, True
+                return OPTIONAL_CHAIN_SHORT_CIRCUIT, JS_UNDEFINED
             return (
                 self._get_property_value(receiver, callee.property.name),
                 receiver,
-                False,
-                callee.optional,
             )
 
         if isinstance(callee, ComputedMemberExpression):
-            receiver = self.evaluate(callee.object)
+            receiver = self._evaluate_chain_operand(callee.object)
+            if receiver is OPTIONAL_CHAIN_SHORT_CIRCUIT:
+                return OPTIONAL_CHAIN_SHORT_CIRCUIT, JS_UNDEFINED
             if callee.optional and self._is_nullish(receiver):
-                return JS_UNDEFINED, JS_UNDEFINED, True, True
+                return OPTIONAL_CHAIN_SHORT_CIRCUIT, JS_UNDEFINED
             key = self.evaluate(callee.property)
             return (
                 self._get_computed_member_value(receiver, key),
                 receiver,
-                False,
-                callee.optional,
             )
 
-        return self.evaluate(callee), JS_UNDEFINED, False, False
+        value = self._evaluate_chain_operand(callee)
+        if value is OPTIONAL_CHAIN_SHORT_CIRCUIT:
+            return OPTIONAL_CHAIN_SHORT_CIRCUIT, JS_UNDEFINED
+        return value, JS_UNDEFINED
 
     def _call_callable(
         self,
@@ -1782,6 +1983,21 @@ class Interpreter:
         if is_nan(number) or math.isinf(number):
             return None
         return int(number)
+
+    def _canonical_array_index(self, property_name: str) -> int | None:
+        if property_name == "":
+            return None
+        if not all(character.isdigit() for character in property_name):
+            return None
+        if len(property_name) > 1 and property_name.startswith("0"):
+            return None
+        return int(property_name)
+
+    def _is_negative_numeric_key(self, key: object, property_name: str) -> bool:
+        if is_number(key):
+            number = to_number(key)
+            return not is_nan(number) and not math.isinf(number) and number < 0
+        return property_name.startswith("-") and property_name[1:].isdigit()
 
     def _array_search_start(self, value: object, length: int) -> int:
         number = to_number(value)

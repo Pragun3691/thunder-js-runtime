@@ -72,6 +72,35 @@ def test_string_length_property():
     assert run_and_collect('console.log("thunder".length);') == ["7"]
 
 
+def test_computed_string_named_properties_and_methods():
+    source = """
+console.log("abc"["length"]);
+console.log("abc"["toUpperCase"]());
+"""
+
+    assert run_and_collect(source) == ["3", "ABC"]
+
+
+def test_computed_string_keys_use_canonical_indexes_only():
+    source = """
+console.log("abc"[1]);
+console.log("abc"["1"]);
+console.log("abc"[1.9]);
+console.log("abc"["01"]);
+console.log("abc"[-1]);
+console.log("abc"[999999]);
+"""
+
+    assert run_and_collect(source) == [
+        "b",
+        "b",
+        "undefined",
+        "undefined",
+        "undefined",
+        "undefined",
+    ]
+
+
 def test_split_with_empty_separator():
     source = """
 let parts = "abc".split("");

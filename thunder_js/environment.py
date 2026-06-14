@@ -54,6 +54,13 @@ class Environment:
     def has_local(self, name: str) -> bool:
         return name in self.values
 
+    def resolve(self, name: str) -> "Environment":
+        if name in self.values:
+            return self
+        if self.parent is not None:
+            return self.parent.resolve(name)
+        raise NameError(f"{name} is not defined.")
+
     def get(self, name: str) -> object:
         if name in self.values:
             return self.values[name].value

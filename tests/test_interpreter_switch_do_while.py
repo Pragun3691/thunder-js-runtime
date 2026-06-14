@@ -126,6 +126,95 @@ console.log(calls);
     assert run_and_collect(source) == ["matched", "1"]
 
 
+def test_switch_let_and_const_do_not_leak():
+    source = """
+switch (1) {
+    case 1:
+        let hidden = 7;
+        const locked = 8;
+        break;
+}
+
+console.log(hidden);
+"""
+
+    exit_code, stdout, stderr = run_cli(source)
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert "hidden is not defined." in stderr
+    assert "Traceback" not in stderr
+
+
+def test_switch_var_remains_function_or_global_scoped():
+    source = """
+switch (1) {
+    case 1:
+        var visible = 7;
+        break;
+}
+
+console.log(visible);
+"""
+
+    assert run_and_collect(source) == ["7"]
+
+
+def test_switch_fall_through_shares_lexical_scope():
+    source = """
+switch (1) {
+    case 1:
+        let hidden = 7;
+    case 2:
+        console.log(hidden);
+        break;
+}
+"""
+
+    assert run_and_collect(source) == ["7"]
+
+
+def test_switch_duplicate_lexical_declaration_in_fallthrough_is_clean_error():
+    source = """
+switch (1) {
+    case 1:
+        let duplicate = 1;
+    case 2:
+        let duplicate = 2;
+        break;
+}
+"""
+
+    exit_code, stdout, stderr = run_cli(source)
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert "duplicate has already been declared." in stderr
+    assert "Traceback" not in stderr
+
+
+def test_nested_switch_lexical_scope_does_not_leak():
+    source = """
+switch (1) {
+    case 1:
+        switch (2) {
+            case 2:
+                let nested = 9;
+                break;
+        }
+        console.log(nested);
+        break;
+}
+"""
+
+    exit_code, stdout, stderr = run_cli(source)
+
+    assert exit_code == 1
+    assert stdout == ""
+    assert "nested is not defined." in stderr
+    assert "Traceback" not in stderr
+
+
 def test_default_can_be_placed_before_later_cases():
     source = """
 let text = "";

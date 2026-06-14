@@ -298,3 +298,26 @@ def js_remainder(left: object, right: object) -> float:
     if is_nan(left_number) or is_nan(right_number) or right_number == 0:
         return math.nan
     return math.fmod(left_number, right_number)
+
+
+def js_power(left: object, right: object) -> float:
+    left_number = to_number(left)
+    right_number = to_number(right)
+
+    if is_nan(left_number) or is_nan(right_number):
+        return math.nan
+    if left_number < 0 and not right_number.is_integer():
+        return math.nan
+    if left_number == 0 and right_number < 0:
+        if (
+            math.copysign(1.0, left_number) < 0
+            and right_number.is_integer()
+            and int(abs(right_number)) % 2 == 1
+        ):
+            return -math.inf
+        return math.inf
+
+    try:
+        return left_number**right_number
+    except (OverflowError, ValueError):
+        return math.nan

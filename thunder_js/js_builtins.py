@@ -18,6 +18,7 @@ from thunder_js.values import (
     inspect_value,
     is_nan,
     is_number,
+    js_power,
     to_boolean,
     to_number,
     to_string,
@@ -109,18 +110,9 @@ def _math_min(arguments: list[object]) -> float:
 
 
 def _math_pow(arguments: list[object]) -> float:
-    base = to_number(arguments[0] if arguments else JS_UNDEFINED)
-    exponent = to_number(arguments[1] if len(arguments) > 1 else JS_UNDEFINED)
-
-    if is_nan(base) or is_nan(exponent):
-        return math.nan
-    if base < 0 and not exponent.is_integer():
-        return math.nan
-
-    try:
-        return base**exponent
-    except (OverflowError, ValueError):
-        return math.nan
+    base = arguments[0] if arguments else JS_UNDEFINED
+    exponent = arguments[1] if len(arguments) > 1 else JS_UNDEFINED
+    return js_power(base, exponent)
 
 
 def _math_sqrt(arguments: list[object]) -> float:

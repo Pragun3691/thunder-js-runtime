@@ -43,6 +43,39 @@ console.log(arr[99]);
     assert run_and_collect(source) == ["10", "30", "undefined"]
 
 
+def test_computed_array_named_properties_and_methods():
+    source = """
+let values = [1, 2];
+
+console.log(values["length"]);
+console.log(values["join"](","));
+"""
+
+    assert run_and_collect(source) == ["2", "1,2"]
+
+
+def test_computed_array_keys_use_canonical_indexes_only():
+    source = """
+let values = [10, 20];
+
+console.log(values[1]);
+console.log(values["1"]);
+console.log(values[1.9]);
+console.log(values["01"]);
+console.log(values[-1]);
+console.log(values[999999]);
+"""
+
+    assert run_and_collect(source) == [
+        "20",
+        "20",
+        "undefined",
+        "undefined",
+        "undefined",
+        "undefined",
+    ]
+
+
 def test_array_length_property():
     assert run_and_collect("console.log([1, 2, 3].length);") == ["3"]
 

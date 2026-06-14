@@ -242,11 +242,20 @@ function sideEffect() {
 
 let user = {};
 console.log(user.missing?.(sideEffect()));
-console.log(user?.alsoMissing(sideEffect()));
+console.log(user?.alsoMissing?.(sideEffect()));
 console.log(calls);
 """
 
     assert run_and_collect(source) == ["undefined", "undefined", "0"]
+
+
+def test_optional_access_with_non_optional_call_to_missing_method_errors():
+    source = """
+let user = {};
+user?.missing();
+"""
+
+    assert_cli_error(source, "Value is not callable.")
 
 
 def test_optional_method_call_preserves_this():
@@ -262,6 +271,57 @@ console.log(user?.greet?.());
 """
 
     assert run_and_collect(source) == ["Pragun"]
+
+
+def test_continuous_optional_chain_short_circuits_remaining_accesses():
+    source = """
+let value = null;
+console.log(value?.profile.name);
+console.log(value?.profile?.name);
+"""
+
+    assert run_and_collect(source) == ["undefined", "undefined"]
+
+
+def test_parentheses_end_optional_chain():
+    source = """
+let value = null;
+console.log((value?.profile).name);
+"""
+
+    assert_cli_error(source, "Property name is not defined.")
+
+
+def test_continuous_optional_chain_skips_computed_key_side_effects():
+    source = """
+let calls = 0;
+function key() {
+    calls++;
+    return "name";
+}
+
+let value = null;
+console.log(value?.profile[key()]);
+console.log(calls);
+"""
+
+    assert run_and_collect(source) == ["undefined", "0"]
+
+
+def test_continuous_optional_chain_skips_call_argument_side_effects():
+    source = """
+let calls = 0;
+function sideEffect() {
+    calls++;
+    return 1;
+}
+
+let value = null;
+console.log(value?.method(sideEffect()).name);
+console.log(calls);
+"""
+
+    assert run_and_collect(source) == ["undefined", "0"]
 
 
 def test_chained_optional_access_and_call():

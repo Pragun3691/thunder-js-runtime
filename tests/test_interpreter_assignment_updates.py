@@ -54,6 +54,45 @@ console.log(arr.join(","));
     assert run_and_collect(source) == ["2,9"]
 
 
+@pytest.mark.parametrize(
+    ("operator", "initial", "expected"),
+    [
+        ("=", 9, "1"),
+        ("+=", 10, "11"),
+        ("-=", 10, "9"),
+        ("*=", 10, "10"),
+        ("/=", 10, "10"),
+        ("%=", 10, "0"),
+        ("**=", 2, "2"),
+    ],
+)
+def test_computed_assignment_target_is_resolved_once_before_rhs(
+    operator, initial, expected
+):
+    source = f"""
+let values = [{initial}];
+let i = 0;
+values[i++] {operator} i;
+console.log(values[0]);
+console.log(i);
+"""
+
+    assert run_and_collect(source) == [expected, "1"]
+
+
+def test_computed_assignment_target_reproduction_case():
+    source = """
+let a = [9];
+let i = 0;
+a[i++] = i;
+
+console.log(a[0]);
+console.log(i);
+"""
+
+    assert run_and_collect(source) == ["1", "1"]
+
+
 def test_prefix_and_postfix_updates_on_object_properties_return_old_and_new_values():
     source = """
 let obj = { count: 3 };
@@ -78,6 +117,27 @@ console.log(arr[0]);
 """
 
     assert run_and_collect(source) == ["3", "5", "5", "3", "3"]
+
+
+@pytest.mark.parametrize(
+    ("expression", "initial", "expected_lines"),
+    [
+        ("values[i++]++", "[1, 2]", ["1", "1", "[ 2, 2 ]"]),
+        ("++values[i++]", "[1, 2]", ["2", "1", "[ 2, 2 ]"]),
+        ("values[i++]--", "[2, 2]", ["2", "1", "[ 1, 2 ]"]),
+        ("--values[i++]", "[2, 2]", ["1", "1", "[ 1, 2 ]"]),
+    ],
+)
+def test_computed_update_target_is_resolved_once(expression, initial, expected_lines):
+    source = f"""
+let values = {initial};
+let i = 0;
+console.log({expression});
+console.log(i);
+console.log(values);
+"""
+
+    assert run_and_collect(source) == expected_lines
 
 
 def test_update_on_out_of_range_array_index_writes_nan_without_traceback():
