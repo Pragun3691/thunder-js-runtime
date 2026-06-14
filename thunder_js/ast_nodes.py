@@ -250,6 +250,12 @@ class LogicalExpression(Expression):
 
 
 @dataclass(frozen=True)
+class NullishCoalescingExpression(Expression):
+    left: Expression
+    right: Expression
+
+
+@dataclass(frozen=True)
 class ConditionalExpression(Expression):
     test: Expression
     consequent: Expression
@@ -279,12 +285,14 @@ class PostfixUpdateExpression(Expression):
 class PropertyAccessExpression(Expression):
     object: Expression
     property: Identifier
+    optional: bool = False
 
 
 @dataclass(frozen=True)
 class ComputedMemberExpression(Expression):
     object: Expression
     property: Expression
+    optional: bool = False
 
 
 @dataclass(frozen=True)
@@ -297,3 +305,4 @@ class NewExpression(Expression):
 class CallExpression(Expression):
     callee: Expression
     arguments: list[Expression | SpreadElement]
+    optional: bool = False

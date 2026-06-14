@@ -87,7 +87,7 @@ def test_identifiers_and_keywords_are_distinguished():
 
 
 def test_punctuation_and_brackets_are_tokenized():
-    assert token_types("(){ }[] ,.;:? ...") == [
+    assert token_types("(){ }[] ,.;:? ... ?.") == [
         TokenType.LEFT_PAREN,
         TokenType.RIGHT_PAREN,
         TokenType.LEFT_BRACE,
@@ -100,12 +100,13 @@ def test_punctuation_and_brackets_are_tokenized():
         TokenType.COLON,
         TokenType.QUESTION,
         TokenType.ELLIPSIS,
+        TokenType.OPTIONAL_CHAIN,
         TokenType.EOF,
     ]
 
 
 def test_all_required_operators_are_tokenized_longest_match_first():
-    source = "+ - * / % ** = == === != !== < <= > >= && || ! ++ -- += -= *= /= %= **= =>"
+    source = "+ - * / % ** = == === != !== < <= > >= && || ?? ! ++ -- += -= *= /= %= **= =>"
 
     assert token_types(source) == [
         TokenType.PLUS,
@@ -125,6 +126,7 @@ def test_all_required_operators_are_tokenized_longest_match_first():
         TokenType.GREATER_EQUAL,
         TokenType.AND_AND,
         TokenType.OR_OR,
+        TokenType.QUESTION_QUESTION,
         TokenType.BANG,
         TokenType.PLUS_PLUS,
         TokenType.MINUS_MINUS,

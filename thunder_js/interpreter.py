@@ -30,6 +30,7 @@ from thunder_js.ast_nodes import (
     LogicalExpression,
     NewExpression,
     NullLiteral,
+    NullishCoalescingExpression,
     NumericLiteral,
     ObjectBindingPattern,
     ObjectLiteral,
@@ -115,13 +116,14 @@ class JSFunction(JSCallable):
 
     def __init__(
         self,
-        parameters: list[str],
+        parameters: list[object],
         rest_parameter: str | None,
         parameter_defaults: list[object | None] | None,
         body: object,
         closure: Environment,
         interpreter: "Interpreter",
         name: str | None = None,
+        dynamic_this: bool = True,
     ):
         self.parameters = parameters
         self.rest_parameter = rest_parameter
@@ -133,6 +135,7 @@ class JSFunction(JSCallable):
         self.closure = closure
         self.interpreter = interpreter
         self.name = name
+        self.dynamic_this = dynamic_this
 
     def __str__(self) -> str:
         if self.name is not None:
@@ -141,7 +144,11 @@ class JSFunction(JSCallable):
 
     __repr__ = __str__
 
-    def call(self, arguments: list[object]) -> object:
+    def call(
+        self,
+        arguments: list[object],
+        this_value: object = JS_UNDEFINED,
+    ) -> object:
         self.interpreter.call_depth += 1
         if self.interpreter.call_depth > self.interpreter.call_limit:
             self.interpreter.call_depth -= 1
@@ -153,6 +160,13 @@ class JSFunction(JSCallable):
             previous = self.interpreter.environment
             self.interpreter.environment = function_environment
             try:
+                if self.dynamic_this:
+                    function_environment.define(
+                        "this",
+                        this_value,
+                        mutable=False,
+                    )
+
                 for index, parameter in enumerate(self.parameters):
                     if index < len(arguments) and arguments[index] is not JS_UNDEFINED:
                         value = arguments[index]
@@ -293,6 +307,7 @@ class Interpreter:
                 self.environment,
                 self,
                 expression.name,
+                dynamic_this=True,
             )
         if isinstance(expression, ArrowFunctionExpression):
             return JSFunction(
@@ -302,6 +317,7 @@ class Interpreter:
                 expression.body,
                 self.environment,
                 self,
+                dynamic_this=False,
             )
         if isinstance(expression, GroupingExpression):
             return self.evaluate(expression.expression)
@@ -311,6 +327,8 @@ class Interpreter:
             return self._evaluate_binary(expression)
         if isinstance(expression, LogicalExpression):
             return self._evaluate_logical(expression)
+        if isinstance(expression, NullishCoalescingExpression):
+            return self._evaluate_nullish_coalescing(expression)
         if isinstance(expression, ConditionalExpression):
             return self._evaluate_conditional(expression)
         if isinstance(expression, Identifier):
@@ -620,6 +638,7 @@ class Interpreter:
             self.environment,
             self,
             statement.name,
+            dynamic_this=True,
         )
 
         try:
@@ -984,6 +1003,16 @@ class Interpreter:
 
         raise InterpreterError(f"Unsupported logical operator {expression.operator}.")
 
+    def _evaluate_nullish_coalescing(
+        self,
+        expression: NullishCoalescingExpression,
+    ) -> object:
+        left = self.evaluate(expression.left)
+
+        if self._is_nullish(left):
+            return self.evaluate(expression.right)
+        return left
+
     def _evaluate_conditional(self, expression: ConditionalExpression) -> object:
         if to_boolean(self.evaluate(expression.test)):
             return self.evaluate(expression.consequent)
@@ -1023,8 +1052,16 @@ class Interpreter:
         if isinstance(target, Identifier):
             return self.environment.get(target.name)
         if isinstance(target, ComputedMemberExpression):
+            if target.optional:
+                raise InterpreterError(
+                    "Optional chaining cannot be used as an assignment target."
+                )
             return self._get_computed_member(target)
         if isinstance(target, PropertyAccessExpression):
+            if target.optional:
+                raise InterpreterError(
+                    "Optional chaining cannot be used as an assignment target."
+                )
             return self._get_property(target)
         raise InterpreterError("Invalid assignment target.")
 
@@ -1032,8 +1069,16 @@ class Interpreter:
         if isinstance(target, Identifier):
             return self.environment.assign(target.name, value)
         if isinstance(target, ComputedMemberExpression):
+            if target.optional:
+                raise InterpreterError(
+                    "Optional chaining cannot be used as an assignment target."
+                )
             return self._assign_computed_member(target, value)
         if isinstance(target, PropertyAccessExpression):
+            if target.optional:
+                raise InterpreterError(
+                    "Optional chaining cannot be used as an assignment target."
+                )
             return self._assign_property(target, value)
         raise InterpreterError("Invalid assignment target.")
 
@@ -1054,6 +1099,13 @@ class Interpreter:
             target, (Identifier, PropertyAccessExpression, ComputedMemberExpression)
         ):
             raise InterpreterError("Invalid update target.")
+        if isinstance(
+            target,
+            (PropertyAccessExpression, ComputedMemberExpression),
+        ) and target.optional:
+            raise InterpreterError(
+                "Optional chaining cannot be used as an assignment target."
+            )
 
         try:
             old_value = self._read_assignment_target(target)
@@ -1101,8 +1153,13 @@ class Interpreter:
 
     def _get_property(self, expression: PropertyAccessExpression) -> object:
         container = self.evaluate(expression.object)
-        property_name = expression.property.name
 
+        if expression.optional and self._is_nullish(container):
+            return JS_UNDEFINED
+
+        return self._get_property_value(container, expression.property.name)
+
+    def _get_property_value(self, container: object, property_name: str) -> object:
         if isinstance(container, str):
             return self._get_string_property(container, property_name)
         if isinstance(container, JSArray):
@@ -1217,8 +1274,14 @@ class Interpreter:
 
     def _get_computed_member(self, expression: ComputedMemberExpression) -> object:
         container = self.evaluate(expression.object)
-        key = self.evaluate(expression.property)
 
+        if expression.optional and self._is_nullish(container):
+            return JS_UNDEFINED
+
+        key = self.evaluate(expression.property)
+        return self._get_computed_member_value(container, key)
+
+    def _get_computed_member_value(self, container: object, key: object) -> object:
         if isinstance(container, JSArray):
             index = self._array_index(key)
             if index is None:
@@ -1267,8 +1330,59 @@ class Interpreter:
         return value
 
     def _evaluate_call(self, expression: CallExpression) -> object:
-        callee = self.evaluate(expression.callee)
+        callee, receiver, short_circuited, optional_callee = (
+            self._evaluate_call_target(expression.callee)
+        )
+
+        if short_circuited:
+            return JS_UNDEFINED
+        if (expression.optional or optional_callee) and self._is_nullish(callee):
+            return JS_UNDEFINED
+
         arguments = self._evaluate_call_arguments(expression.arguments)
+
+        return self._call_callable(callee, arguments, receiver)
+
+    def _evaluate_call_target(
+        self,
+        callee: object,
+    ) -> tuple[object, object, bool, bool]:
+        if isinstance(callee, PropertyAccessExpression):
+            receiver = self.evaluate(callee.object)
+            if callee.optional and self._is_nullish(receiver):
+                return JS_UNDEFINED, JS_UNDEFINED, True, True
+            return (
+                self._get_property_value(receiver, callee.property.name),
+                receiver,
+                False,
+                callee.optional,
+            )
+
+        if isinstance(callee, ComputedMemberExpression):
+            receiver = self.evaluate(callee.object)
+            if callee.optional and self._is_nullish(receiver):
+                return JS_UNDEFINED, JS_UNDEFINED, True, True
+            key = self.evaluate(callee.property)
+            return (
+                self._get_computed_member_value(receiver, key),
+                receiver,
+                False,
+                callee.optional,
+            )
+
+        return self.evaluate(callee), JS_UNDEFINED, False, False
+
+    def _call_callable(
+        self,
+        callee: object,
+        arguments: list[object],
+        receiver: object,
+    ) -> object:
+        if isinstance(callee, JSFunction):
+            try:
+                return callee.call(arguments, this_value=receiver)
+            except RecursionError as error:
+                raise InterpreterError("Maximum call stack size exceeded.") from error
 
         if isinstance(callee, JSCallable):
             try:
@@ -1603,6 +1717,9 @@ class Interpreter:
 
     def _property_key(self, value: object) -> str:
         return to_string(value)
+
+    def _is_nullish(self, value: object) -> bool:
+        return value is JS_NULL or value is JS_UNDEFINED
 
 
 def evaluate_expression(source: str) -> object:

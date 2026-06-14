@@ -30,6 +30,7 @@ from thunder_js.ast_nodes import (
     LogicalExpression,
     NewExpression,
     NullLiteral,
+    NullishCoalescingExpression,
     NumericLiteral,
     ObjectBindingPattern,
     ObjectBindingProperty,
@@ -541,13 +542,35 @@ class Parser:
         return target
 
     def _conditional(self) -> Expression:
-        expression = self._logical_or()
+        expression = self._nullish_coalescing()
 
         if self._match(TokenType.QUESTION):
             consequent = self.parse_expression()
             self._consume(TokenType.COLON, "Expected ':' after true branch.")
             alternate = self._assignment()
             return ConditionalExpression(expression, consequent, alternate)
+
+        return expression
+
+    def _nullish_coalescing(self) -> Expression:
+        expression = self._logical_or()
+
+        while self._match(TokenType.QUESTION_QUESTION):
+            operator = self._previous()
+            if isinstance(expression, LogicalExpression):
+                raise self._error(
+                    operator,
+                    "Cannot mix '??' with '&&' or '||' without parentheses.",
+                )
+
+            right = self._logical_or()
+            if isinstance(right, LogicalExpression):
+                raise self._error(
+                    operator,
+                    "Cannot mix '??' with '&&' or '||' without parentheses.",
+                )
+
+            expression = NullishCoalescingExpression(expression, right)
 
         return expression
 
@@ -678,11 +701,38 @@ class Parser:
                 property_expression = self.parse_expression()
                 self._consume(TokenType.RIGHT_BRACKET, "Expected ']' after property.")
                 expression = ComputedMemberExpression(expression, property_expression)
+            elif self._match(TokenType.OPTIONAL_CHAIN):
+                if self._match(TokenType.LEFT_PAREN):
+                    expression = self._finish_optional_call(expression)
+                elif self._match(TokenType.LEFT_BRACKET):
+                    property_expression = self.parse_expression()
+                    self._consume(
+                        TokenType.RIGHT_BRACKET,
+                        "Expected ']' after optional property.",
+                    )
+                    expression = ComputedMemberExpression(
+                        expression,
+                        property_expression,
+                        optional=True,
+                    )
+                else:
+                    name = self._consume(
+                        TokenType.IDENTIFIER,
+                        "Expected property name after '?.'.",
+                    )
+                    expression = PropertyAccessExpression(
+                        expression,
+                        Identifier(name.lexeme),
+                        optional=True,
+                    )
             else:
                 return expression
 
     def _finish_call(self, callee: Expression) -> CallExpression:
         return CallExpression(callee, self._call_arguments())
+
+    def _finish_optional_call(self, callee: Expression) -> CallExpression:
+        return CallExpression(callee, self._call_arguments(), optional=True)
 
     def _call_arguments(self) -> list[Expression | SpreadElement]:
         arguments = []
@@ -961,6 +1011,15 @@ class Parser:
         return None
 
     def _require_assignment_target(self, expression: Expression) -> None:
+        if isinstance(
+            expression,
+            (PropertyAccessExpression, ComputedMemberExpression),
+        ) and expression.optional:
+            raise self._error(
+                self._previous(),
+                "Optional chaining cannot be used as an assignment target.",
+            )
+
         if isinstance(expression, ASSIGNMENT_TARGET_TYPES):
             return
 

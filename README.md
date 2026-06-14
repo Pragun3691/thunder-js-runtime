@@ -44,6 +44,7 @@ The codebase keeps these pieces separated:
   `undefined`, `NaN`, `Infinity`, arrays, objects, and minimal `Date` values.
 - Expressions: grouping, unary operators including `typeof`, arithmetic,
   exponentiation, comparisons, equality, logical operators, ternary expressions,
+  nullish coalescing with `??`, optional chaining with `?.`,
   assignments, compound assignments including `%=` and `**=`, prefix/postfix
   `++` and `--` on variables, properties, and indexes, member access, computed
   access, calls, spread arguments, and `new Date(...)`.
@@ -61,7 +62,9 @@ The codebase keeps these pieces separated:
   closures in classic `for` loops.
 - Functions: declarations, expressions, arrow functions, parameters, rest
   parameters, default parameters, destructured parameters, recursion, closures,
-  callbacks, returned functions, and missing arguments as `undefined`.
+  callbacks, returned functions, missing arguments as `undefined`, and limited
+  method-call `this` binding for normal functions called through object member
+  access.
 - Arrays: literals, indexing, length, indexed assignment, array spread,
   `push`, `pop`, `shift`, `unshift`, `slice`, `splice`, `concat`, `includes`,
   `indexOf`, `reverse`, `join`, default `sort`, `map`, `filter`, `reduce`,
@@ -73,7 +76,9 @@ The codebase keeps these pieces separated:
   numeric keys converted to strings, nested objects, property reads, computed
   reads, shorthand properties, property assignment, adding properties, shallow
   object spread, `Object.keys`, `Object.values`, `Object.entries`, and missing
-  properties as `undefined`.
+  properties as `undefined`. Normal functions stored on objects receive the
+  immediate receiver as `this` when called as `object.method()` or
+  `object["method"]()`.
 
 Object spread copies properties into a new object and is shallow:
 
@@ -99,11 +104,17 @@ This runtime intentionally supports only an educational subset of JavaScript.
 Notable missing or incomplete areas include:
 
 - No full ECMAScript compatibility, including try/catch, throw, classes,
-  prototypes, `this`, modules, imports, async functions, generators, promises,
-  bitwise operators, regex literals, or the full standard library.
+  prototypes, modules, imports, async functions, generators, promises, bitwise
+  operators, regex literals, or the full standard library.
+- `this` support is intentionally limited: only normal functions called as
+  object methods receive dynamic `this`. Detached method calls use `undefined`
+  as `this`; `bind`, `call`, `apply`, constructor-style `this`, and complete
+  lexical arrow-function `this` semantics are not implemented.
 - Destructuring is supported in declarations and function or arrow parameters,
   but destructuring assignment expressions such as `[a, b] = [b, a]` are not
   supported.
+- Optional chaining is read/call-only; optional assignment targets such as
+  `object?.property = value` are rejected.
 - `var` implements function/global scoping and simple declaration-name hoisting,
   but it does not model every ECMAScript global-object or browser Annex B
   scoping edge case.

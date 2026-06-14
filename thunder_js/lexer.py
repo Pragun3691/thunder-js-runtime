@@ -96,7 +96,12 @@ class Lexer:
         elif char == ":":
             self._add_token(TokenType.COLON)
         elif char == "?":
-            self._add_token(TokenType.QUESTION)
+            if self._match("."):
+                self._add_token(TokenType.OPTIONAL_CHAIN)
+            elif self._match("?"):
+                self._add_token(TokenType.QUESTION_QUESTION)
+            else:
+                self._add_token(TokenType.QUESTION)
         elif char == "+":
             if self._match("+"):
                 self._add_token(TokenType.PLUS_PLUS)
