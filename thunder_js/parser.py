@@ -15,6 +15,7 @@ from thunder_js.ast_nodes import (
     DoWhileStatement,
     Expression,
     ExpressionStatement,
+    ForOfStatement,
     ForStatement,
     FunctionDeclaration,
     FunctionExpression,
@@ -197,16 +198,32 @@ class Parser:
         self._optional_semicolon()
         return DoWhileStatement(body, test)
 
-    def _for_statement(self) -> ForStatement:
+    def _for_statement(self) -> ForStatement | ForOfStatement:
         self._consume(TokenType.LEFT_PAREN, "Expected '(' after for.")
 
         if self._match(TokenType.SEMICOLON):
             initializer = None
         elif self._match(TokenType.LET):
-            initializer = self._variable_declaration_without_semicolon("let")
+            name = self._consume(TokenType.IDENTIFIER, "Expected let variable name.")
+            if self._match_identifier("of"):
+                iterable = self.parse_expression()
+                self._consume(TokenType.RIGHT_PAREN, "Expected ')' after for...of.")
+                body = self._loop_body()
+                return ForOfStatement("let", name.lexeme, iterable, body)
+            initializer = self._finish_variable_declaration_without_semicolon(
+                "let", name
+            )
             self._consume(TokenType.SEMICOLON, "Expected ';' after for initializer.")
         elif self._match(TokenType.CONST):
-            initializer = self._variable_declaration_without_semicolon("const")
+            name = self._consume(TokenType.IDENTIFIER, "Expected const variable name.")
+            if self._match_identifier("of"):
+                iterable = self.parse_expression()
+                self._consume(TokenType.RIGHT_PAREN, "Expected ')' after for...of.")
+                body = self._loop_body()
+                return ForOfStatement("const", name.lexeme, iterable, body)
+            initializer = self._finish_variable_declaration_without_semicolon(
+                "const", name
+            )
             self._consume(TokenType.SEMICOLON, "Expected ';' after for initializer.")
         else:
             initializer = self.parse_expression()
@@ -222,12 +239,15 @@ class Parser:
             update = self.parse_expression()
         self._consume(TokenType.RIGHT_PAREN, "Expected ')' after for clauses.")
 
+        body = self._loop_body()
+        return ForStatement(initializer, condition, update, body)
+
+    def _loop_body(self) -> Statement:
         self.loop_depth += 1
         try:
-            body = self._statement()
+            return self._statement()
         finally:
             self.loop_depth -= 1
-        return ForStatement(initializer, condition, update, body)
 
     def _switch_statement(self) -> SwitchStatement:
         self._consume(TokenType.LEFT_PAREN, "Expected '(' after switch.")
@@ -401,6 +421,11 @@ class Parser:
         self, kind: str
     ) -> VariableDeclaration:
         name = self._consume(TokenType.IDENTIFIER, f"Expected {kind} variable name.")
+        return self._finish_variable_declaration_without_semicolon(kind, name)
+
+    def _finish_variable_declaration_without_semicolon(
+        self, kind: str, name: Token
+    ) -> VariableDeclaration:
         initializer = None
 
         if self._match(TokenType.EQUAL):
@@ -748,6 +773,12 @@ class Parser:
             if self._check(token_type):
                 self._advance()
                 return True
+        return False
+
+    def _match_identifier(self, lexeme: str) -> bool:
+        if self._check(TokenType.IDENTIFIER) and self._peek().lexeme == lexeme:
+            self._advance()
+            return True
         return False
 
     def _consume(self, token_type: TokenType, message: str) -> Token:

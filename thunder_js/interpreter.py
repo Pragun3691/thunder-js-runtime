@@ -17,6 +17,7 @@ from thunder_js.ast_nodes import (
     ContinueStatement,
     DoWhileStatement,
     ExpressionStatement,
+    ForOfStatement,
     ForStatement,
     FunctionDeclaration,
     FunctionExpression,
@@ -43,6 +44,7 @@ from thunder_js.ast_nodes import (
 )
 from thunder_js.environment import Environment
 from thunder_js.js_builtins import (
+    BuiltInError,
     JSCallable,
     construct_date,
     create_global_environment,
@@ -232,6 +234,9 @@ class Interpreter:
             return
         if isinstance(statement, ForStatement):
             self._execute_for(statement)
+            return
+        if isinstance(statement, ForOfStatement):
+            self._execute_for_of(statement)
             return
         if isinstance(statement, SwitchStatement):
             self._execute_switch(statement)
@@ -435,6 +440,44 @@ class Interpreter:
 
                 if statement.update is not None:
                     self.evaluate(statement.update)
+        finally:
+            self.environment = previous
+
+    def _execute_for_of(self, statement: ForOfStatement) -> None:
+        iterable = self.evaluate(statement.iterable)
+
+        if isinstance(iterable, JSArray):
+            values = list(iterable.items)
+        elif isinstance(iterable, str):
+            values = list(iterable)
+        else:
+            raise InterpreterError("for...of value must be an array or string.")
+
+        loop_environment = Environment(self.environment)
+        previous = self.environment
+        self.environment = loop_environment
+
+        try:
+            for value in values:
+                iteration_environment = Environment(loop_environment)
+                try:
+                    iteration_environment.define(
+                        statement.name,
+                        value,
+                        mutable=statement.kind == "let",
+                    )
+                except NameError as error:
+                    raise InterpreterError(str(error)) from error
+
+                self.environment = iteration_environment
+                try:
+                    self.execute(statement.body)
+                except ContinueSignal:
+                    continue
+                except BreakSignal:
+                    break
+                finally:
+                    self.environment = loop_environment
         finally:
             self.environment = previous
 
@@ -792,6 +835,8 @@ class Interpreter:
             return NativeMethod(lambda args: self._array_some(array, args))
         if property_name == "every":
             return NativeMethod(lambda args: self._array_every(array, args))
+        if property_name == "forEach":
+            return NativeMethod(lambda args: self._array_for_each(array, args))
 
         raise InterpreterError(f"Array method {property_name} is not defined.")
 
@@ -871,6 +916,8 @@ class Interpreter:
         if isinstance(callee, JSCallable):
             try:
                 return callee.call(arguments)
+            except BuiltInError as error:
+                raise InterpreterError(str(error)) from error
             except RecursionError as error:
                 raise InterpreterError("Maximum call stack size exceeded.") from error
 
@@ -1140,6 +1187,14 @@ class Interpreter:
                 return False
 
         return True
+
+    def _array_for_each(self, array: JSArray, arguments: list[object]) -> object:
+        callback = self._array_callback(arguments, "forEach")
+
+        for index, item in enumerate(list(array.items)):
+            callback.call([item, index, array])
+
+        return JS_UNDEFINED
 
     def _array_callback(self, arguments: list[object], method_name: str) -> JSCallable:
         if not arguments or not isinstance(arguments[0], JSCallable):

@@ -8,7 +8,9 @@ from datetime import datetime, timezone
 
 from thunder_js.environment import Environment
 from thunder_js.values import (
+    JSArray,
     JSDate,
+    JSObject,
     JS_UNDEFINED,
     format_value,
     is_nan,
@@ -17,6 +19,10 @@ from thunder_js.values import (
     to_number,
     to_string,
 )
+
+
+class BuiltInError(Exception):
+    """Raised when a built-in function receives invalid JavaScript values."""
 
 
 class JSCallable:
@@ -44,7 +50,10 @@ class BuiltInFunction(JSCallable):
         self.function = function
 
     def call(self, arguments: list[object]) -> object:
-        return self.function(arguments)
+        try:
+            return self.function(arguments)
+        except ValueError as error:
+            raise BuiltInError(str(error)) from error
 
 
 def _first_number(arguments: list[object]) -> float:
@@ -204,6 +213,38 @@ def _boolean_function(arguments: list[object]) -> bool:
     return to_boolean(arguments[0])
 
 
+def _array_is_array(arguments: list[object]) -> bool:
+    value = arguments[0] if arguments else JS_UNDEFINED
+    return isinstance(value, JSArray)
+
+
+def _object_argument(arguments: list[object], method_name: str) -> JSObject:
+    value = arguments[0] if arguments else JS_UNDEFINED
+    if not isinstance(value, JSObject):
+        raise ValueError(f"Object.{method_name} argument must be an object.")
+    return value
+
+
+def _object_keys(arguments: list[object]) -> JSArray:
+    value = _object_argument(arguments, "keys")
+    return JSArray(list(value.properties.keys()))
+
+
+def _object_values(arguments: list[object]) -> JSArray:
+    value = _object_argument(arguments, "values")
+    return JSArray(list(value.properties.values()))
+
+
+def _object_entries(arguments: list[object]) -> JSArray:
+    value = _object_argument(arguments, "entries")
+    return JSArray(
+        [
+            JSArray([key, property_value])
+            for key, property_value in value.properties.items()
+        ]
+    )
+
+
 def _is_nan_function(arguments: list[object]) -> bool:
     return is_nan(_first_number(arguments))
 
@@ -266,10 +307,26 @@ def _math_object() -> dict[str, object]:
     }
 
 
+def _array_object() -> dict[str, object]:
+    return {
+        "isArray": BuiltInFunction(_array_is_array),
+    }
+
+
+def _object_object() -> dict[str, object]:
+    return {
+        "keys": BuiltInFunction(_object_keys),
+        "values": BuiltInFunction(_object_values),
+        "entries": BuiltInFunction(_object_entries),
+    }
+
+
 def create_global_environment(output: Callable[[str], None]) -> Environment:
     environment = Environment()
     environment.define("console", {"log": ConsoleLog(output)}, mutable=False)
     environment.define("Math", _math_object(), mutable=False)
+    environment.define("Array", _array_object(), mutable=False)
+    environment.define("Object", _object_object(), mutable=False)
     environment.define(
         "Date",
         {"now": BuiltInFunction(_date_now)},
